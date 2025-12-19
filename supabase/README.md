@@ -33,3 +33,4 @@ supabase db push
 2. **create_companies_table.sql**: Erstellt die `companies` Tabelle mit RLS Policies und `status` Feld
 3. **create_updated_at_trigger.sql**: Erstellt Trigger für automatisches `updated_at` Update
 
+

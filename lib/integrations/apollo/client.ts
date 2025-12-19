@@ -394,7 +394,7 @@ export class ApolloClient {
     reveal_personal_emails?: boolean
   }): Promise<ApolloEmailMatchResponse> {
     const body: Record<string, string | boolean> = {
-      reveal_personal_emails: params.reveal_personal_emails ?? true,
+      reveal_personal_emails: params.reveal_personal_emails ?? false,
     }
 
     if (params.id) {

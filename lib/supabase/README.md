@@ -56,3 +56,4 @@ const supabase = createAdminClient()
 - **Client Components:** Browser Client (`client.ts`)
 - **Admin/Background:** Admin Client (`admin.ts`) - nur wenn wirklich nötig
 
+

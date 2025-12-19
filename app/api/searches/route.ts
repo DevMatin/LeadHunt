@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
-import { searchOrganizations } from '@/lib/integrations/apollo/enrich'
+import { searchPeopleWithVerifiedEmails } from '@/lib/integrations/apollo/enrich'
 import { createApolloClient } from '@/lib/integrations/apollo/client'
 import { ApolloClientError } from '@/lib/integrations/apollo/client'
 
@@ -191,112 +191,149 @@ export async function POST(request: Request) {
         const normalizedLocation = location.trim()
         const normalizedIndustry = industry.trim()
 
-        console.log(`[API POST] 🏢 Searching for ORGANIZATIONS (not people)...`)
+        console.log(`[API POST] 👥 Searching for PEOPLE with verified business emails...`)
         console.log(`[API POST]   - Industry: ${normalizedIndustry}`)
         console.log(`[API POST]   - Location: ${normalizedLocation}`)
 
-        let organizations: Array<{ name?: string; website?: string; email?: string }> = []
-
         try {
-          const orgs = await searchOrganizations({
-            organization_locations: [normalizedLocation],
-            q_keywords: normalizedIndustry,
-            maxResults: 50,
+          const defaultTitles = [
+            'Founder',
+            'CEO',
+            'Managing Director',
+            'Owner',
+            'Director',
+            'Principal',
+            'Geschäftsführer',
+            'Inhaber',
+          ]
+
+          const peopleGroups = await searchPeopleWithVerifiedEmails({
+            location: normalizedLocation,
+            industry: normalizedIndustry,
+            titles: defaultTitles,
+            maxResults: 100,
           })
 
-          console.log(`[API POST] ✅ Found ${orgs.length} organizations from Apollo`)
-          console.log(`[API POST] 📧 Finding email addresses for organizations...`)
-
-          const client = createApolloClient()
-          const organizationsWithEmails = await Promise.all(
-            orgs.map(async (org) => {
-              let email: string | undefined = undefined
-
-              if (org.id) {
-                try {
-                  // Suche nach Personen in dieser Firma (max 1 Person pro Firma, um Credits zu sparen)
-                  const peopleResponse = await client.searchPeople({
-                    organization_id: org.id,
-                    per_page: 1,
-                    page: 1,
-                  })
-
-                  const people = peopleResponse.people || []
-                  if (people.length > 0 && people[0].id) {
-                    // Finde Email für die erste Person
-                    try {
-                      const emailResponse = await client.matchEmail({
-                        id: people[0].id,
-                        reveal_personal_emails: false,
-                      })
-
-                      if (emailResponse.person?.email) {
-                        email = emailResponse.person.email
-                        console.log(`[API POST] ✅ Email found for ${org.name}: ${email}`)
-                      }
-                    } catch (emailError) {
-                      console.log(`[API POST] ⚠️  Email enrichment failed for ${org.name}: ${String(emailError)}`)
-                    }
-                  }
-                } catch (peopleError) {
-                  console.log(`[API POST] ⚠️  People search failed for ${org.name}: ${String(peopleError)}`)
-                }
-              }
-
-              return {
-                name: org.name,
-                website: org.website_url || org.primary_domain,
-                email,
-              }
-            })
+          const totalPeople = Array.from(peopleGroups.values()).reduce(
+            (sum, group) => sum + group.people.length,
+            0
           )
+          const totalOrganizations = peopleGroups.size
 
-          organizations = organizationsWithEmails
-          const orgsWithEmail = organizations.filter((org) => org.email).length
-          console.log(`[API POST] ✅ Found ${orgsWithEmail} organizations with email addresses`)
-        } catch (orgSearchError) {
-          const errorMessage = orgSearchError instanceof Error ? orgSearchError.message : String(orgSearchError)
-          console.error(`[API POST] ❌ Organization Search failed: ${errorMessage}`)
+          console.log(`[API POST] ✅ Found ${totalPeople} people with verified business emails`)
+          console.log(`[API POST] ✅ Grouped into ${totalOrganizations} organizations`)
+
+          if (peopleGroups.size === 0) {
+            console.log(`[API POST] ⚠️  No organizations with verified business emails found`)
+          } else {
+            const companiesToInsert: Array<{
+              user_id: string
+              search_id: string
+              name: string
+              industry: string
+              location: string
+              email: string
+              status: 'new'
+              apollo_organization_id?: string
+              owner_first_name?: string
+              owner_last_name?: string
+              owner_title?: string
+              owner_email?: string
+              owner_enriched_at?: string
+            }> = []
+
+            let skippedDuplicates = 0
+            let skippedNoEmail = 0
+
+            for (const [orgId, orgGroup] of peopleGroups.entries()) {
+              if (orgGroup.people.length === 0) {
+                skippedNoEmail++
+                console.log(`[API POST] ⚠️  Skipping organization ${orgId}: No people with verified business emails`)
+                continue
+              }
+
+              const firstPerson = orgGroup.people[0]
+              const primaryEmail = firstPerson.email
+
+              if (!primaryEmail) {
+                skippedNoEmail++
+                console.log(`[API POST] ⚠️  Skipping organization ${orgId}: No email found`)
+                continue
+              }
+
+              const { data: existingCompany } = await supabase
+                .from('companies')
+                .select('id')
+                .eq('user_id', user.id)
+                .eq('search_id', data.id)
+                .eq('apollo_organization_id', orgId)
+                .maybeSingle()
+
+              if (existingCompany) {
+                skippedDuplicates++
+                console.log(`[API POST] ⚠️  Skipping duplicate: Company with organization_id ${orgId} already exists for this search`)
+                continue
+              }
+
+              const companyName = orgGroup.organization_name || firstPerson.organization_name || 'Unknown Company'
+              const ownerFirstName = firstPerson.first_name
+              const ownerLastName = firstPerson.last_name
+              const ownerTitle = firstPerson.title
+
+              companiesToInsert.push({
+                user_id: user.id,
+                search_id: data.id,
+                name: companyName,
+                industry: normalizedIndustry,
+                location: normalizedLocation,
+                email: primaryEmail,
+                status: 'new',
+                apollo_organization_id: orgId,
+                owner_first_name: ownerFirstName,
+                owner_last_name: ownerLastName,
+                owner_title: ownerTitle,
+                owner_email: primaryEmail,
+                owner_enriched_at: (ownerFirstName || primaryEmail) ? new Date().toISOString() : undefined,
+              })
+
+              console.log(`[API POST] ✅ Prepared company: ${companyName} (${primaryEmail})`)
+            }
+
+            if (companiesToInsert.length > 0) {
+              console.log(`[API POST] 🗄️  Saving ${companiesToInsert.length} companies to database (all with verified business emails)...`)
+
+              const { data: insertedCompanies, error: insertError } = await supabase
+                .from('companies')
+                .insert(companiesToInsert)
+                .select()
+
+              if (insertError) {
+                console.error(`[API POST] ⚠️  Error inserting companies: ${insertError.message}`)
+              } else {
+                companiesCreated = insertedCompanies?.length || 0
+                console.log(`[API POST] ✅ Created ${companiesCreated} companies (all with email)`)
+              }
+            }
+
+            if (skippedDuplicates > 0) {
+              console.log(`[API POST] ⚠️  Skipped ${skippedDuplicates} duplicates`)
+            }
+            if (skippedNoEmail > 0) {
+              console.log(`[API POST] ⚠️  Skipped ${skippedNoEmail} organizations without email`)
+            }
+          }
+        } catch (peopleSearchError) {
+          const errorMessage = peopleSearchError instanceof Error ? peopleSearchError.message : String(peopleSearchError)
+          console.error(`[API POST] ❌ People Search failed: ${errorMessage}`)
           if (errorMessage.includes('not accessible with this api_key')) {
             console.error(`[API POST] 💡 Mögliche Ursachen:`)
             console.error(`[API POST]   1. API Key hat noch nicht die richtigen Berechtigungen`)
             console.error(`[API POST]   2. Server muss neu gestartet werden`)
             console.error(`[API POST]   3. API Key muss in .env aktualisiert werden`)
             console.error(`[API POST]   4. Abonnement-Berechtigungen sind noch nicht aktiv`)
-            console.error(`[API POST]   5. api/v1/mixed_companies/search oder api/v1/organizations/search muss aktiviert sein`)
+            console.error(`[API POST]   5. api/v1/mixed_people/api_search muss aktiviert sein`)
           }
-          throw orgSearchError
-        }
-
-        if (organizations.length > 0) {
-          console.log(`[API POST] 🗄️  Saving companies to database...`)
-
-          const companiesToInsert = organizations.map((org) => ({
-            user_id: user.id,
-            search_id: data.id,
-            name: org.name || 'Unknown Company',
-            industry: normalizedIndustry,
-            location: normalizedLocation,
-            website: org.website || undefined,
-            description: undefined,
-            email: org.email || undefined,
-            phone: undefined,
-            status: 'new' as const,
-          }))
-
-          const { data: insertedCompanies, error: insertError } = await supabase
-            .from('companies')
-            .insert(companiesToInsert)
-            .select()
-
-          if (insertError) {
-            console.error(`[API POST] ⚠️  Error inserting companies: ${insertError.message}`)
-          } else {
-            companiesCreated = insertedCompanies?.length || 0
-            console.log(`[API POST] ✅ Created ${companiesCreated} companies`)
-          }
-        } else {
-          console.log(`[API POST] ⚠️  No organizations found for this search`)
+          throw peopleSearchError
         }
       } catch (apolloError) {
         const errorMessage = apolloError instanceof Error ? apolloError.message : String(apolloError)

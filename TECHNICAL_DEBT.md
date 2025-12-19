@@ -50,3 +50,4 @@
 4. **Mittel:** Supabase Types generieren
 5. **Niedrig:** Weitere UI-Komponenten extrahieren
 
+

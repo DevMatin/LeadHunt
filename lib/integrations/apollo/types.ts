@@ -132,3 +132,23 @@ export interface ApolloOrganizationSearchResponse {
   }
   [key: string]: unknown
 }
+
+export type MatchQuality = 'exact' | 'mismatch' | 'unknown'
+
+export interface EnrichRequest {
+  companyName: string
+  email: string
+}
+
+export interface EnrichResponse {
+  person: {
+    name?: string
+    title?: string
+    apolloId?: string
+  } | null
+  organization: {
+    name?: string
+    domain?: string
+  } | null
+  matchQuality: MatchQuality
+}

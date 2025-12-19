@@ -205,9 +205,12 @@ export async function GET(request: Request) {
     console.log(`[API GET] ✅ Authenticated as: ${user.id}`)
 
     const { searchParams } = new URL(request.url)
-    const industry = searchParams.get('industry')
-    const location = searchParams.get('location')
+    const industryParam = searchParams.get('industry')
+    const locationParam = searchParams.get('location')
     const searchId = searchParams.get('search') || searchParams.get('search_id')
+
+    const industry = industryParam ? industryParam.trim() : null
+    const location = locationParam ? locationParam.trim() : null
 
     const queryParams: Record<string, string> = {}
     if (industry) queryParams.industry = industry

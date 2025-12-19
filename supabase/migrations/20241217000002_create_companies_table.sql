@@ -39,3 +39,4 @@ CREATE POLICY "Users can delete own companies"
   ON companies FOR DELETE
   USING (auth.uid() = user_id);
 
+
