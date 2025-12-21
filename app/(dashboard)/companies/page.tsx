@@ -18,6 +18,8 @@ interface Company {
   owner_last_name?: string | null
   owner_email?: string | null
   owner_title?: string | null
+  crawl_status?: string | null
+  email_count?: number
 }
 
 export default function CompaniesPage() {
@@ -90,6 +92,8 @@ export default function CompaniesPage() {
         owner_last_name: company.owner_last_name || null,
         owner_email: company.owner_email || null,
         owner_title: company.owner_title || null,
+        crawl_status: company.crawl_status || null,
+        email_count: company.email_count || 0,
       }))
       setCompanies(companiesData)
     } catch (err) {
@@ -326,6 +330,8 @@ export default function CompaniesPage() {
                   <th className="text-left p-4 text-gray-700">Branche</th>
                   <th className="text-left p-4 text-gray-700">Standort</th>
                   <th className="text-left p-4 text-gray-700">Website</th>
+                  <th className="text-left p-4 text-gray-700">Crawl Status</th>
+                  <th className="text-left p-4 text-gray-700">E-Mails</th>
                   <th className="text-left p-4 text-gray-700">Erstellt am</th>
                   <th className="text-left p-4 text-gray-700">Aktionen</th>
                 </tr>
@@ -367,6 +373,32 @@ export default function CompaniesPage() {
                       ) : (
                         <span className="text-gray-400">-</span>
                       )}
+                    </td>
+                    <td className="p-4">
+                      {company.crawl_status ? (
+                        <span
+                          className={`px-2 py-1 rounded text-xs ${
+                            company.crawl_status === 'done'
+                              ? 'bg-green-100 text-green-700'
+                              : company.crawl_status === 'running'
+                              ? 'bg-blue-100 text-blue-700'
+                              : company.crawl_status === 'failed'
+                              ? 'bg-red-100 text-red-700'
+                              : company.crawl_status === 'pending'
+                              ? 'bg-yellow-100 text-yellow-700'
+                              : 'bg-gray-100 text-gray-700'
+                          }`}
+                        >
+                          {company.crawl_status}
+                        </span>
+                      ) : (
+                        <span className="text-gray-400">-</span>
+                      )}
+                    </td>
+                    <td className="p-4">
+                      <span className="text-gray-600">
+                        {(company.email_count ?? 0) > 0 ? company.email_count : '-'}
+                      </span>
                     </td>
                     <td className="p-4">
                       <p className="text-gray-600">

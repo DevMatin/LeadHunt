@@ -5,6 +5,8 @@ import type {
   ApolloPersonSearchResponse,
   ApolloPersonSearchParams,
   ApolloEmailMatchResponse,
+  ApolloOrganizationSearchParams,
+  ApolloOrganizationSearchResponse,
 } from './types'
 
 const APOLLO_BASE_URL = 'https://api.apollo.io/api/v1'
@@ -41,6 +43,8 @@ class RateLimiter {
   }
 }
 
+const APOLLO_VERBOSE_LOGGING = process.env.APOLLO_VERBOSE_LOGGING === 'true'
+
 function logRequest(
   endpoint: string,
   method: string,
@@ -50,6 +54,12 @@ function logRequest(
   responseBody?: unknown,
   url?: string
 ): void {
+  const hasError = error || (statusCode && statusCode >= 400)
+  
+  if (!APOLLO_VERBOSE_LOGGING && !hasError) {
+    return
+  }
+
   const timestamp = new Date().toISOString()
   
   const logData: Record<string, unknown> = {
@@ -68,7 +78,7 @@ function logRequest(
     logData.statusCode = statusCode
   }
 
-  if (responseBody) {
+  if (responseBody && APOLLO_VERBOSE_LOGGING) {
     logData.responseBody = responseBody
   }
 
@@ -78,11 +88,11 @@ function logRequest(
 
   const logMessage = JSON.stringify(logData, null, 2)
   
-  if (error || (statusCode && statusCode >= 400)) {
+  if (hasError) {
     console.error('\n[Apollo Client] ❌ ERROR')
     console.error(logMessage)
     console.error('[Apollo Client] ❌ END ERROR\n')
-  } else {
+  } else if (APOLLO_VERBOSE_LOGGING) {
     console.log('\n[Apollo Client] ✅ REQUEST')
     console.log(logMessage)
     console.log('[Apollo Client] ✅ END REQUEST\n')

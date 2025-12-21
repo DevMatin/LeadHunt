@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, ExternalLink, Mail, Phone, MapPin, Building2 } from 'lucide-react'
+import { ArrowLeft, ExternalLink, Mail, Phone, MapPin, Building2, Search, RefreshCw } from 'lucide-react'
 
 interface Company {
   id: string
@@ -17,6 +17,18 @@ interface Company {
   status: string
   created_at: string
   updated_at: string
+  crawl_status?: {
+    status: string
+    finished_at: string | null
+    last_error: string | null
+  } | null
+  emails?: Array<{
+    id: string
+    email: string
+    source_url: string
+    confidence_score: number
+    created_at: string
+  }>
 }
 
 export default function CompanyDetailPage() {
@@ -25,6 +37,7 @@ export default function CompanyDetailPage() {
   const [company, setCompany] = useState<Company | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [crawling, setCrawling] = useState(false)
 
   useEffect(() => {
     fetchCompany()
@@ -46,10 +59,44 @@ export default function CompanyDetailPage() {
 
       const { data } = await response.json()
       setCompany(data)
+      setCrawling(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ein Fehler ist aufgetreten')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleStartCrawl = async (force: boolean = false) => {
+    if (!company) return
+    
+    setCrawling(true)
+    try {
+      const response = await fetch('/api/crawl/enqueue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          company_id: company.id,
+          force,
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        if (response.status === 409) {
+          alert(`Job bereits vorhanden: ${errorData.error}`)
+        } else {
+          alert(`Fehler: ${errorData.error || 'Unbekannter Fehler'}`)
+        }
+      } else {
+        alert('Crawl-Job erfolgreich erstellt')
+        fetchCompany()
+      }
+    } catch (err) {
+      console.error('Crawl error:', err)
+      alert('Fehler beim Erstellen des Crawl-Jobs')
+    } finally {
+      setCrawling(false)
     }
   }
 
@@ -98,8 +145,46 @@ export default function CompanyDetailPage() {
               <span className="px-3 py-1 rounded-full bg-gray-100 text-gray-700">
                 {company.status}
               </span>
+              {company.crawl_status && (
+                <span
+                  className={`px-3 py-1 rounded-full text-xs ${
+                    company.crawl_status.status === 'done'
+                      ? 'bg-green-100 text-green-700'
+                      : company.crawl_status.status === 'running'
+                      ? 'bg-blue-100 text-blue-700'
+                      : company.crawl_status.status === 'failed'
+                      ? 'bg-red-100 text-red-700'
+                      : company.crawl_status.status === 'pending'
+                      ? 'bg-yellow-100 text-yellow-700'
+                      : 'bg-gray-100 text-gray-700'
+                  }`}
+                >
+                  Crawl: {company.crawl_status.status}
+                </span>
+              )}
             </div>
           </div>
+          {company.website && (
+            <div className="flex gap-2">
+              <button
+                onClick={() => handleStartCrawl(false)}
+                disabled={crawling}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Search className="w-4 h-4" />
+                {crawling ? 'Wird erstellt...' : 'Start Crawl'}
+              </button>
+              <button
+                onClick={() => handleStartCrawl(true)}
+                disabled={crawling}
+                className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Force Recrawl (ignoriert Deduplizierung)"
+              >
+                <RefreshCw className="w-4 h-4" />
+                Force Recrawl
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="space-y-6">
@@ -174,6 +259,54 @@ export default function CompanyDetailPage() {
             <div>
               <h3 className="mb-4">Beschreibung</h3>
               <p className="text-gray-600">{company.description}</p>
+            </div>
+          )}
+
+          {company.emails && company.emails.length > 0 && (
+            <div>
+              <h3 className="mb-4">Gefundene E-Mails ({company.emails.length})</h3>
+              <div className="space-y-2">
+                {company.emails.map((email) => (
+                  <div
+                    key={email.id}
+                    className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+                  >
+                    <div className="flex items-center gap-3">
+                      <Mail className="w-5 h-5 text-blue-600" />
+                      <div>
+                        <a
+                          href={`mailto:${email.email}`}
+                          className="text-blue-600 hover:text-blue-700 font-medium"
+                        >
+                          {email.email}
+                        </a>
+                        <p className="text-xs text-gray-500 mt-1">
+                          Quelle: {email.source_url} • Confidence: {email.confidence_score}%
+                        </p>
+                      </div>
+                    </div>
+                    <span
+                      className={`px-2 py-1 rounded text-xs ${
+                        email.confidence_score >= 90
+                          ? 'bg-green-100 text-green-700'
+                          : email.confidence_score >= 70
+                          ? 'bg-yellow-100 text-yellow-700'
+                          : 'bg-gray-100 text-gray-700'
+                      }`}
+                    >
+                      {email.confidence_score}%
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {company.crawl_status?.last_error && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+              <p className="text-red-700 text-sm">
+                <strong>Fehler:</strong> {company.crawl_status.last_error}
+              </p>
             </div>
           )}
 

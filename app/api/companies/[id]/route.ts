@@ -94,7 +94,7 @@ export async function GET(
     console.log(`[API GET] 🏢 Looking up company: ${id}`)
 
     console.log(`[API GET] 🗄️  Executing database query...`)
-    const { data, error } = await supabase
+    const { data: company, error } = await supabase
       .from('companies')
       .select('*')
       .eq('id', id)
@@ -129,28 +129,58 @@ export async function GET(
     }
 
     console.log(`[API GET] ✅ Company found`)
-    if (data) {
+    if (company) {
       console.log(`[API GET] 📋 Company data:`)
-      console.log(`[API GET]   - Name: ${data.name || 'N/A'}`)
-      console.log(`[API GET]   - Industry: ${data.industry || 'N/A'}`)
-      console.log(`[API GET]   - Location: ${data.location || 'N/A'}`)
-      console.log(`[API GET]   - Website: ${data.website || 'N/A'}`)
-      console.log(`[API GET]   - Email: ${data.email || 'N/A'}`)
-      console.log(`[API GET]   - Apollo Status: ${data.apollo_enrichment_status || 'N/A'}`)
+      console.log(`[API GET]   - Name: ${company.name || 'N/A'}`)
+      console.log(`[API GET]   - Industry: ${company.industry || 'N/A'}`)
+      console.log(`[API GET]   - Location: ${company.location || 'N/A'}`)
+      console.log(`[API GET]   - Website: ${company.website || 'N/A'}`)
+      console.log(`[API GET]   - Email: ${company.email || 'N/A'}`)
+      console.log(`[API GET]   - Apollo Status: ${company.apollo_enrichment_status || 'N/A'}`)
     }
+
+    const { data: latestJob } = await supabase
+      .from('crawl_jobs')
+      .select('id, status, finished_at, last_error')
+      .eq('company_id', id)
+      .eq('owner_user_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    const { data: emails } = await supabase
+      .from('company_emails')
+      .select('id, email, source_url, confidence_score, created_at')
+      .eq('company_id', id)
+      .eq('owner_user_id', user.id)
+      .order('confidence_score', { ascending: false })
 
     const duration = Date.now() - startTime
     console.log(`[API GET] ⏱️  Duration: ${duration}ms`)
 
-    const response = { data }
+    const response = {
+      data: {
+        ...company,
+        crawl_status: latestJob
+          ? {
+              status: latestJob.status,
+              finished_at: latestJob.finished_at,
+              last_error: latestJob.last_error,
+            }
+          : null,
+        emails: emails || [],
+      },
+    }
     logApiRequest('GET', '/api/companies/[id]', {
       user,
       companyId: id,
       statusCode: 200,
-      response: { 
-        companyId: data?.id,
-        name: data?.name,
-        hasEmail: !!data?.email,
+      response: {
+        companyId: company?.id,
+        name: company?.name,
+        hasEmail: !!company?.email,
+        crawlStatus: latestJob?.status,
+        emailCount: emails?.length || 0,
       },
     })
 

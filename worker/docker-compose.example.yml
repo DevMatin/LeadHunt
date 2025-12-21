@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - WORKER_CONCURRENCY=2
+      - PAGE_TIMEOUT_MS=30000
+      - LOCK_EXPIRES_MINUTES=15
+      - MAX_ATTEMPTS=3
+    restart: unless-stopped
+

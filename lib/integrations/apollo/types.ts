@@ -135,6 +135,12 @@ export interface ApolloOrganizationSearchResponse {
 
 export type MatchQuality = 'exact' | 'mismatch' | 'unknown'
 
+export type EmailQuality = 
+  | 'verified_business'
+  | 'unverified_business'
+  | 'verified_personal'
+  | 'unverified_personal'
+
 export interface EnrichRequest {
   companyName: string
   email: string

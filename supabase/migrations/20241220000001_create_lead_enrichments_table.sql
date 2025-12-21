@@ -24,3 +24,4 @@ CREATE UNIQUE INDEX IF NOT EXISTS lead_enrichments_email_company_unique_idx
 CREATE INDEX IF NOT EXISTS lead_enrichments_email_idx 
   ON lead_enrichments(email);
 
+

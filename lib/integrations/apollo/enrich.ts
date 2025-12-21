@@ -8,8 +8,11 @@ import type {
   EnrichRequest,
   EnrichResponse,
   MatchQuality,
+  EmailQuality,
+  ApolloEmailMatch,
 } from './types'
 import { matchCompanyName } from './matchCompany'
+import type { ApolloClient } from './client'
 
 export interface EnrichedCompanyData {
   name?: string
@@ -412,8 +415,10 @@ export async function enrichCompany(
 
         if (searchResponse.organizations && searchResponse.organizations.length > 0) {
           organization = searchResponse.organizations[0]
-          domain = organization.primary_domain || organization.website_url?.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0]
-          console.log(`[Apollo Enrich] ✅ Organization found by name, domain: ${domain || 'N/A'}`)
+          if (organization) {
+            domain = organization.primary_domain || organization.website_url?.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0]
+            console.log(`[Apollo Enrich] ✅ Organization found by name, domain: ${domain || 'N/A'}`)
+          }
         }
       } catch (error) {
         console.error('[Apollo Enrich] ⚠️  Organization search by name failed')
@@ -811,7 +816,7 @@ export interface PeopleWithVerifiedEmailsResult {
   organization?: {
     name: string
   }
-  people: ApolloPerson[]
+  people: (ApolloPerson & { email_quality?: EmailQuality })[]
 }
 
 export interface SearchPeopleWithVerifiedEmailsOptions {
@@ -876,67 +881,38 @@ export async function searchPeopleWithVerifiedEmails(
 
         totalFiltered++
 
-        if (!person.organization?.name) {
-          console.log(`[Apollo Enrich] ⚠️  Skipping person without organization name`)
-          continue
-        }
+        const emailResult = await getAnyEmail(person, client)
 
-        let personEmail = person.email
-        let personEmailStatus = person.email_status
-
-        if (!personEmail && person.id) {
-          try {
-            console.log(`[Apollo Enrich] 🔍 Fetching email for person ${person.id}...`)
-            const emailResponse = await client.matchEmail({
-              id: person.id,
-              first_name: person.first_name,
-              last_name: person.last_name,
-              reveal_personal_emails: false,
-            })
-            if (emailResponse.person?.email) {
-              personEmail = emailResponse.person.email
-              personEmailStatus = emailResponse.person.email_status
-            }
-          } catch (emailError) {
-            console.log(`[Apollo Enrich] ⚠️  Email lookup failed for person ${person.id}: ${String(emailError)}`)
-          }
-        }
-
-        if (!personEmail) {
+        if (!emailResult) {
           console.log(`[Apollo Enrich] ⚠️  Skipping person without email: ${person.first_name} ${person.last_name}`)
           continue
         }
 
-        if (personEmailStatus !== 'verified') {
-          console.log(`[Apollo Enrich] ⚠️  Skipping person with non-verified email: ${personEmail} (status: ${personEmailStatus})`)
-          continue
-        }
+        person.email = emailResult.email
+        person.email_status = emailResult.quality.includes('verified') ? 'verified' : 'unverified'
+        ;(person as any).email_quality = emailResult.quality
 
-        if (!isBusinessEmail(personEmail)) {
-          console.log(`[Apollo Enrich] ⚠️  Skipping person with personal email: ${personEmail}`)
-          continue
-        }
+        const orgId = person.organization_id || (person as any).organization?.id
+        const emailDomain = extractDomain(emailResult.email)
+        const groupKey = orgId || emailDomain || person.id || 'unknown'
 
-        person.email = personEmail
-        person.email_status = personEmailStatus
-
-        const orgKey = person.organization.name.trim().toLowerCase()
-        if (!results.has(orgKey)) {
-          results.set(orgKey, {
-            organization_id: (person as any).organization_id || person.organization?.id || '',
-            organization_name: person.organization.name,
+        if (!results.has(groupKey)) {
+          const orgName = (person.organization as ApolloOrganization | undefined)?.name || person.organization_name || 'Unknown Company'
+          results.set(groupKey, {
+            organization_id: orgId || groupKey,
+            organization_name: orgName,
             organization: {
-              name: person.organization.name
+              name: orgName
             },
             people: [],
           })
         }
 
-        const orgGroup = results.get(orgKey)!
-        orgGroup.people.push(person)
+        const orgGroup = results.get(groupKey)!
+        orgGroup.people.push(person as ApolloPerson & { email_quality?: EmailQuality })
         totalFound++
 
-        console.log(`[Apollo Enrich] ✅ Added person: ${person.first_name} ${person.last_name} (${person.email}) to org ${orgKey}`)
+        console.log(`[Apollo Enrich] ✅ Added person: ${person.first_name} ${person.last_name} (${emailResult.email}, ${emailResult.quality}) to group ${groupKey}`)
       }
 
       if (
@@ -952,8 +928,8 @@ export async function searchPeopleWithVerifiedEmails(
 
     console.log(`[Apollo Enrich] ✅ searchPeopleWithVerifiedEmails completed:`)
     console.log(`[Apollo Enrich]   - Total people processed: ${totalFiltered}`)
-    console.log(`[Apollo Enrich]   - People with verified business emails: ${totalFound}`)
-    console.log(`[Apollo Enrich]   - Organizations grouped: ${results.size}`)
+    console.log(`[Apollo Enrich]   - People with emails: ${totalFound}`)
+    console.log(`[Apollo Enrich]   - Groups created: ${results.size}`)
     console.log('[Apollo Enrich] ✅ END searchPeopleWithVerifiedEmails\n')
 
     return results
@@ -1036,6 +1012,51 @@ export function isBusinessEmail(email: string): boolean {
   }
   
   return !PERSONAL_EMAIL_DOMAINS.has(domain)
+}
+
+export function getEmailQuality(email: string, status?: string): EmailQuality {
+  const isPersonal = !isBusinessEmail(email)
+  const isVerified = status === 'verified'
+
+  if (isVerified && !isPersonal) return 'verified_business'
+  if (!isVerified && !isPersonal) return 'unverified_business'
+  if (isVerified && isPersonal) return 'verified_personal'
+  return 'unverified_personal'
+}
+
+export function extractDomain(email: string): string | null {
+  return extractDomainFromEmail(email)
+}
+
+export async function getAnyEmail(
+  person: ApolloPerson,
+  client: ApolloClient
+): Promise<{ email: string; quality: EmailQuality } | null> {
+  if (person.email) {
+    return {
+      email: person.email,
+      quality: getEmailQuality(person.email, person.email_status),
+    }
+  }
+
+  if (person.id) {
+    const res = await client.matchEmail({
+      id: person.id,
+      reveal_personal_emails: true,
+    })
+
+    if (res.person?.email) {
+      return {
+        email: res.person.email,
+        quality: getEmailQuality(
+          res.person.email,
+          res.person.email_status
+        ),
+      }
+    }
+  }
+
+  return null
 }
 
 export function extractOrganizationFromPerson(person: ApolloPerson | ApolloEmailMatch): {

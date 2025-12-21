@@ -57,3 +57,4 @@ const supabase = createAdminClient()
 - **Admin/Background:** Admin Client (`admin.ts`) - nur wenn wirklich nötig
 
 
+

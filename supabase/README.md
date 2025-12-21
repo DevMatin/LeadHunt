@@ -34,3 +34,4 @@ supabase db push
 3. **create_updated_at_trigger.sql**: Erstellt Trigger für automatisches `updated_at` Update
 
 
+

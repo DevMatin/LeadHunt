@@ -51,3 +51,4 @@
 5. **Niedrig:** Weitere UI-Komponenten extrahieren
 
 
+

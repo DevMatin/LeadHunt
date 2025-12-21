@@ -32,3 +32,4 @@ CREATE POLICY "Users can delete own searches"
   USING (auth.uid() = user_id);
 
 
+

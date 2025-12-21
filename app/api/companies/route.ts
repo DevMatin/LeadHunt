@@ -172,11 +172,7 @@ export async function GET(request: Request) {
   let user: { id: string; email?: string } | null = null
   
   try {
-    console.log(`\n[API GET] 🚀 /api/companies - START`)
-    console.log(`[API GET] 📍 URL: ${request.url}`)
-    
     const supabase = await createClient()
-    console.log(`[API GET] 🔐 Checking authentication...`)
     
     const {
       data: { user: authUser },
@@ -202,8 +198,6 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    console.log(`[API GET] ✅ Authenticated as: ${user.id}`)
-
     const { searchParams } = new URL(request.url)
     const industryParam = searchParams.get('industry')
     const locationParam = searchParams.get('location')
@@ -216,13 +210,6 @@ export async function GET(request: Request) {
     if (industry) queryParams.industry = industry
     if (location) queryParams.location = location
     if (searchId) queryParams.search = searchId
-
-    console.log(`[API GET] 🔍 Query parameters:`)
-    console.log(`[API GET]   - industry: ${industry || 'N/A'}`)
-    console.log(`[API GET]   - location: ${location || 'N/A'}`)
-    console.log(`[API GET]   - search_id: ${searchId || 'N/A'}`)
-
-    console.log(`[API GET] 🗄️  Building Supabase query...`)
     let query = supabase
       .from('companies')
       .select('*')
@@ -230,28 +217,19 @@ export async function GET(request: Request) {
       .order('created_at', { ascending: false })
 
     if (searchId) {
-      console.log(`[API GET]   - Filtering by search_id: ${searchId}`)
       query = query.eq('search_id', searchId)
     }
     if (industry) {
-      console.log(`[API GET]   - Filtering by industry: ${industry}`)
       query = query.eq('industry', industry)
     }
     if (location) {
-      console.log(`[API GET]   - Filtering by location: ${location}`)
       query = query.eq('location', location)
     }
 
-    console.log(`[API GET] 🔍 Executing database query...`)
     const { data, error } = await query
 
     if (error) {
-      console.error(`[API GET] ❌ Database error:`)
-      console.error(`[API GET]   - Code: ${error.code || 'N/A'}`)
-      console.error(`[API GET]   - Message: ${error.message}`)
-      console.error(`[API GET]   - Details: ${error.details || 'N/A'}`)
-      console.error(`[API GET]   - Hint: ${error.hint || 'N/A'}`)
-      
+      console.error(`[API GET] ❌ Database error:`, error.message)
       logApiRequest('GET', '/api/companies', {
         user,
         queryParams,
@@ -260,26 +238,62 @@ export async function GET(request: Request) {
       })
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
-
-    console.log(`[API GET] ✅ Query successful`)
-    console.log(`[API GET] 📊 Found ${data?.length || 0} companies`)
     
     if (data && data.length > 0) {
-      console.log(`[API GET] 📋 Sample company IDs: ${data.slice(0, 3).map(c => c.id).join(', ')}`)
+      
+      const companyIds = data.map((c: any) => c.id)
+      
+      const { data: crawlStatuses } = await supabase
+        .from('crawl_jobs')
+        .select('company_id, status')
+        .eq('owner_user_id', user.id)
+        .in('company_id', companyIds)
+        .order('created_at', { ascending: false })
+      
+      const latestStatusMap = new Map<string, string>()
+      if (crawlStatuses) {
+        for (const job of crawlStatuses) {
+          if (!latestStatusMap.has(job.company_id)) {
+            latestStatusMap.set(job.company_id, job.status)
+          }
+        }
+      }
+      
+      const { data: emailCounts } = await supabase
+        .from('company_emails')
+        .select('company_id')
+        .eq('owner_user_id', user.id)
+        .in('company_id', companyIds)
+      
+      const countMap = new Map<string, number>()
+      if (emailCounts) {
+        for (const email of emailCounts) {
+          countMap.set(email.company_id, (countMap.get(email.company_id) || 0) + 1)
+        }
+      }
+      
+      const enrichedData = data.map((company: any) => ({
+        ...company,
+        crawl_status: latestStatusMap.get(company.id) || null,
+        email_count: countMap.get(company.id) || 0,
+      }))
+      
+      const response = { data: enrichedData }
+      const responseObj = NextResponse.json(response, { status: 200 })
+      responseObj.headers.set(
+        'Cache-Control',
+        'private, s-maxage=10, stale-while-revalidate=30'
+      )
+      return responseObj
     }
 
-    const duration = Date.now() - startTime
-    console.log(`[API GET] ⏱️  Duration: ${duration}ms`)
-
-    const response = { data }
-    logApiRequest('GET', '/api/companies', {
-      user,
-      queryParams,
-      statusCode: 200,
-      response: { dataCount: data?.length || 0 },
-    })
-
-    return NextResponse.json(response, { status: 200 })
+    const response = { data: [] }
+    const responseObj = NextResponse.json(response, { status: 200 })
+    responseObj.headers.set(
+      'Cache-Control',
+      'private, s-maxage=10, stale-while-revalidate=30'
+    )
+    return responseObj
   } catch (error) {
     const duration = Date.now() - startTime
     console.error(`[API GET] ❌ Unhandled error after ${duration}ms`)

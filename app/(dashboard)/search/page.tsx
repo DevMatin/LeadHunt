@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 export default function SearchPage() {
   const [industry, setIndustry] = useState('')
   const [location, setLocation] = useState('')
+  const [maxResults, setMaxResults] = useState('100')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const router = useRouter()
@@ -21,7 +22,11 @@ export default function SearchPage() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ industry, location }),
+        body: JSON.stringify({ 
+          industry, 
+          location, 
+          maxResults: maxResults ? parseInt(maxResults, 10) : 100 
+        }),
       })
 
       if (!response.ok) {
@@ -70,6 +75,25 @@ export default function SearchPage() {
               className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               placeholder="z.B. Berlin, Germany"
             />
+          </div>
+          <div>
+            <label htmlFor="maxResults" className="block mb-2 text-gray-700">
+              Maximale Anzahl Ergebnisse
+            </label>
+            <input
+              id="maxResults"
+              type="number"
+              min="1"
+              max="1000"
+              value={maxResults}
+              onChange={(e) => setMaxResults(e.target.value)}
+              required
+              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              placeholder="z.B. 100"
+            />
+            <p className="mt-1 text-sm text-gray-500">
+              Anzahl der Unternehmen, die von Apollo abgerufen werden sollen (spart Credits)
+            </p>
           </div>
           {error && (
             <div className="p-4 bg-red-50 rounded-lg border border-red-100">
