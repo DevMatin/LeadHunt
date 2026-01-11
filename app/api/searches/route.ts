@@ -1,8 +1,8 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
-import { searchOrganizations } from '@/lib/integrations/apollo/enrich'
-import { createApolloClient } from '@/lib/integrations/apollo/client'
-import { ApolloClientError } from '@/lib/integrations/apollo/client'
+import { searchOrganizations } from '@/lib/integrations/dataforseo/enrich'
+import { createDataForSEOClient } from '@/lib/integrations/dataforseo/client'
+import { DataForSEOClientError } from '@/lib/integrations/dataforseo/client'
 import { createCrawlJobsForCompanies } from '@/lib/supabase/crawl'
 
 function logApiRequest(
@@ -175,18 +175,20 @@ export async function POST(request: Request) {
       console.log(`[API POST]   - Created at: ${data.created_at}`)
     }
 
-    const apolloEnabled = process.env.APOLLO_ENABLED === 'true'
-    const apolloApiKey = process.env.APOLLO_API_KEY
+    const dataforseoEnabled = process.env.DATAFORSEO_ENABLED === 'true'
+    const dataforseoLogin = process.env.DATAFORSEO_LOGIN
+    const dataforseoPassword = process.env.DATAFORSEO_PASSWORD
     let companiesCreated = 0
 
-    console.log(`[API POST] 🔧 Apollo Configuration:`)
-    console.log(`[API POST]   - APOLLO_ENABLED: ${process.env.APOLLO_ENABLED || 'not set'}`)
-    console.log(`[API POST]   - APOLLO_API_KEY: ${apolloApiKey ? '***SET***' : 'NOT SET'}`)
-    console.log(`[API POST]   - Apollo Enabled: ${apolloEnabled}`)
+    console.log(`[API POST] 🔧 DataForSEO Configuration:`)
+    console.log(`[API POST]   - DATAFORSEO_ENABLED: ${process.env.DATAFORSEO_ENABLED || 'not set'}`)
+    console.log(`[API POST]   - DATAFORSEO_LOGIN: ${dataforseoLogin ? '***SET***' : 'NOT SET'}`)
+    console.log(`[API POST]   - DATAFORSEO_PASSWORD: ${dataforseoPassword ? '***SET***' : 'NOT SET'}`)
+    console.log(`[API POST]   - DataForSEO Enabled: ${dataforseoEnabled}`)
 
-    if (apolloEnabled && data && apolloApiKey) {
+    if (dataforseoEnabled && data && dataforseoLogin && dataforseoPassword) {
       try {
-        console.log(`[API POST] 🔍 Starting Apollo search...`)
+        console.log(`[API POST] 🔍 Starting DataForSEO search...`)
         console.log(`[API POST]   - Industry: ${industry}`)
         console.log(`[API POST]   - Location: ${location}`)
 
@@ -203,30 +205,30 @@ export async function POST(request: Request) {
           
           const { data: existingCompanies } = await supabase
             .from('companies')
-            .select('apollo_organization_id, website')
+            .select('dataforseo_organization_id, website')
             .eq('user_id', user.id)
-            .not('apollo_organization_id', 'is', null)
+            .not('dataforseo_organization_id', 'is', null)
 
-          const excludeApolloIds = new Set<string>()
+          const excludeDataForSEOIds = new Set<string>()
           const excludeWebsites = new Set<string>()
 
           if (existingCompanies) {
             for (const company of existingCompanies) {
-              if (company.apollo_organization_id) {
-                excludeApolloIds.add(company.apollo_organization_id)
+              if (company.dataforseo_organization_id) {
+                excludeDataForSEOIds.add(company.dataforseo_organization_id)
               }
               if (company.website) {
                 excludeWebsites.add(company.website)
               }
             }
-            console.log(`[API POST] 🚫 Excluding ${excludeApolloIds.size} existing Apollo IDs and ${excludeWebsites.size} existing websites`)
+            console.log(`[API POST] 🚫 Excluding ${excludeDataForSEOIds.size} existing DataForSEO IDs and ${excludeWebsites.size} existing websites`)
           }
           
           const organizations = await searchOrganizations({
-            organization_locations: [normalizedLocation],
-            q_keywords: normalizedIndustry,
+            location: normalizedLocation,
+            industry: normalizedIndustry,
             maxResults: maxResultsValue,
-            excludeApolloIds,
+            excludeDataForSEOIds,
             excludeWebsites,
           })
 
@@ -243,12 +245,12 @@ export async function POST(request: Request) {
               location: string
               website: string | null
               status: 'new'
-              apollo_organization_id?: string
-              apollo_enrichment_status?: string
+              dataforseo_organization_id?: string
+              dataforseo_enrichment_status?: string
             }> = []
 
             let skippedDuplicates = 0
-            let skippedNoWebsite = 0
+            let organizationsWithoutWebsite = 0
 
             for (const org of organizations) {
               if (!org.id) {
@@ -257,10 +259,10 @@ export async function POST(request: Request) {
               }
 
               let website: string | null = null
-              if (org.primary_domain) {
-                const domain = org.primary_domain.startsWith('http') 
-                  ? org.primary_domain 
-                  : `https://${org.primary_domain}`
+              if (org.domain) {
+                const domain = org.domain.startsWith('http') 
+                  ? org.domain 
+                  : `https://${org.domain}`
                 website = domain
               } else if (org.website_url) {
                 website = org.website_url.startsWith('http') 
@@ -269,16 +271,15 @@ export async function POST(request: Request) {
               }
 
               if (!website) {
-                skippedNoWebsite++
-                console.log(`[API POST] ⚠️  Skipping organization ${org.id}: No website found`)
-                continue
+                organizationsWithoutWebsite++
+                console.log(`[API POST] ⚠️  Organization ${org.id} has no website, but will be saved anyway`)
               }
 
               const { data: existingCompany } = await supabase
                 .from('companies')
                 .select('id')
                 .eq('user_id', user.id)
-                .eq('apollo_organization_id', org.id)
+                .eq('dataforseo_organization_id', org.id)
                 .maybeSingle()
 
               if (existingCompany) {
@@ -287,17 +288,19 @@ export async function POST(request: Request) {
                 continue
               }
 
-              const { data: existingCompanyByWebsite } = await supabase
-                .from('companies')
-                .select('id')
-                .eq('user_id', user.id)
-                .eq('website', website)
-                .maybeSingle()
+              if (website) {
+                const { data: existingCompanyByWebsite } = await supabase
+                  .from('companies')
+                  .select('id')
+                  .eq('user_id', user.id)
+                  .eq('website', website)
+                  .maybeSingle()
 
-              if (existingCompanyByWebsite) {
-                skippedDuplicates++
-                console.log(`[API POST] ⚠️  Skipping duplicate: Company with website ${website} already exists`)
-                continue
+                if (existingCompanyByWebsite) {
+                  skippedDuplicates++
+                  console.log(`[API POST] ⚠️  Skipping duplicate: Company with website ${website} already exists`)
+                  continue
+                }
               }
 
               const companyName = org.name || 'Unknown Company'
@@ -310,12 +313,18 @@ export async function POST(request: Request) {
                 location: normalizedLocation,
                 website: website,
                 status: 'new',
-                apollo_organization_id: org.id,
-                apollo_enrichment_status: 'enriched',
+                dataforseo_organization_id: org.id,
+                dataforseo_enrichment_status: 'enriched',
               })
 
               console.log(`[API POST] ✅ Prepared company: ${companyName} (${website})`)
             }
+
+            console.log(`[API POST] 📊 Summary:`)
+            console.log(`[API POST]   - Total organizations found: ${organizations.length}`)
+            console.log(`[API POST]   - Organizations without website: ${organizationsWithoutWebsite} (will be saved anyway)`)
+            console.log(`[API POST]   - Skipped (duplicates): ${skippedDuplicates}`)
+            console.log(`[API POST]   - Companies to insert: ${companiesToInsert.length}`)
 
             if (companiesToInsert.length > 0) {
               console.log(`[API POST] 🗄️  Saving ${companiesToInsert.length} companies to database...`)
@@ -385,43 +394,37 @@ export async function POST(request: Request) {
             if (skippedDuplicates > 0) {
               console.log(`[API POST] ⚠️  Skipped ${skippedDuplicates} duplicates`)
             }
-            if (skippedNoWebsite > 0) {
-              console.log(`[API POST] ⚠️  Skipped ${skippedNoWebsite} organizations without website`)
+            if (organizationsWithoutWebsite > 0) {
+              console.log(`[API POST] ℹ️  ${organizationsWithoutWebsite} organizations without website (saved anyway)`)
             }
           }
         } catch (orgSearchError) {
           const errorMessage = orgSearchError instanceof Error ? orgSearchError.message : String(orgSearchError)
           console.error(`[API POST] ❌ Organization Search failed: ${errorMessage}`)
-          if (errorMessage.includes('not accessible with this api_key')) {
+          if (errorMessage.includes('not accessible') || errorMessage.includes('authentication')) {
             console.error(`[API POST] 💡 Mögliche Ursachen:`)
-            console.error(`[API POST]   1. API Key hat noch nicht die richtigen Berechtigungen`)
+            console.error(`[API POST]   1. Login/Password hat noch nicht die richtigen Berechtigungen`)
             console.error(`[API POST]   2. Server muss neu gestartet werden`)
-            console.error(`[API POST]   3. API Key muss in .env aktualisiert werden`)
+            console.error(`[API POST]   3. Login/Password muss in .env aktualisiert werden`)
             console.error(`[API POST]   4. Abonnement-Berechtigungen sind noch nicht aktiv`)
-            console.error(`[API POST]   5. api/v1/mixed_companies/search muss aktiviert sein`)
           }
           throw orgSearchError
         }
-      } catch (apolloError) {
-        const errorMessage = apolloError instanceof Error ? apolloError.message : String(apolloError)
-        console.error(`[API POST] ⚠️  Apollo search failed, but search was saved:`)
+      } catch (dataforseoError) {
+        const errorMessage = dataforseoError instanceof Error ? dataforseoError.message : String(dataforseoError)
+        console.error(`[API POST] ⚠️  DataForSEO search failed, but search was saved:`)
         console.error(`[API POST]   - Error: ${errorMessage}`)
         
-        if (errorMessage.includes('free plan') || errorMessage.includes('API_INACCESSIBLE')) {
-          console.error(`[API POST] ❌ Organization API Search is not available on Free Plan`)
-          console.error(`[API POST] 💡 Upgrade your Apollo plan to use Organization Search: https://app.apollo.io/`)
-        }
-        
-        if (apolloError instanceof Error && apolloError.stack) {
-          console.error(`[API POST]   - Stack: ${apolloError.stack}`)
+        if (dataforseoError instanceof Error && dataforseoError.stack) {
+          console.error(`[API POST]   - Stack: ${dataforseoError.stack}`)
         }
       }
     } else {
-      if (!apolloEnabled) {
-        console.log(`[API POST] ℹ️  Apollo is disabled (APOLLO_ENABLED=${process.env.APOLLO_ENABLED || 'not set'})`)
+      if (!dataforseoEnabled) {
+        console.log(`[API POST] ℹ️  DataForSEO is disabled (DATAFORSEO_ENABLED=${process.env.DATAFORSEO_ENABLED || 'not set'})`)
       }
-      if (!apolloApiKey) {
-        console.log(`[API POST] ⚠️  Apollo API key is not set (APOLLO_API_KEY not found)`)
+      if (!dataforseoLogin || !dataforseoPassword) {
+        console.log(`[API POST] ⚠️  DataForSEO credentials are not set (DATAFORSEO_LOGIN or DATAFORSEO_PASSWORD not found)`)
       }
       if (!data) {
         console.log(`[API POST] ⚠️  Search data is missing`)

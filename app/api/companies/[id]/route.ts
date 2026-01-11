@@ -136,7 +136,7 @@ export async function GET(
       console.log(`[API GET]   - Location: ${company.location || 'N/A'}`)
       console.log(`[API GET]   - Website: ${company.website || 'N/A'}`)
       console.log(`[API GET]   - Email: ${company.email || 'N/A'}`)
-      console.log(`[API GET]   - Apollo Status: ${company.apollo_enrichment_status || 'N/A'}`)
+      console.log(`[API GET]   - DataForSEO Status: ${company.dataforseo_enrichment_status || 'N/A'}`)
     }
 
     const { data: latestJob } = await supabase
