@@ -12,3 +12,4 @@ CREATE INDEX IF NOT EXISTS companies_email_verified_idx
   ON companies(email_verified) WHERE email_verified IS NOT NULL;
 
 
+

@@ -11,3 +11,4 @@ CREATE INDEX IF NOT EXISTS companies_owner_email_idx
   ON companies(owner_email) WHERE owner_email IS NOT NULL;
 
 
+

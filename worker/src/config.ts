@@ -1,9 +1,11 @@
 export const config = {
   dedupWindowDays: parseInt(process.env.DEDUP_WINDOW_DAYS || '7', 10),
-  workerConcurrency: parseInt(process.env.WORKER_CONCURRENCY || '2', 10),
+  workerConcurrency: parseInt(process.env.WORKER_CONCURRENCY || '1', 10),
   pageTimeoutMs: parseInt(process.env.PAGE_TIMEOUT_MS || '30000', 10),
   lockExpiresMinutes: parseInt(process.env.LOCK_EXPIRES_MINUTES || '15', 10),
   maxAttempts: parseInt(process.env.MAX_ATTEMPTS || '2', 10),
+  ignoreRobotsTxt: process.env.IGNORE_ROBOTS_TXT === 'true',
+  ignoreSSLErrors: process.env.IGNORE_SSL_ERRORS === 'true',
   pollIntervalMs: 5000,
   pollIntervalNoJobMs: 10000,
   shutdownTimeoutMs: 30000,

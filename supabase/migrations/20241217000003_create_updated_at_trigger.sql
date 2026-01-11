@@ -21,3 +21,4 @@ CREATE TRIGGER update_companies_updated_at
 
 
 
+

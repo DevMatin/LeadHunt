@@ -55,6 +55,8 @@ function logStartupInfo() {
   console.log(`[Worker]   - Max pages per crawl: ${HARD_LIMITS.MAX_PAGES_PER_CRAWL}`)
   console.log(`[Worker]   - Max emails per page: ${HARD_LIMITS.MAX_EMAILS_PER_PAGE}`)
   console.log(`[Worker]   - Crawl enabled: ${crawlEnabled}`)
+  console.log(`[Worker]   - Ignore robots.txt: ${config.ignoreRobotsTxt}`)
+  console.log(`[Worker]   - Ignore SSL errors: ${config.ignoreSSLErrors}`)
   console.log(`[Worker]   - Supabase URL: ${supabaseUrl.replace(/\/\/.*@/, '//***@')}\n`)
 
   if (!crawlEnabled) {
@@ -115,6 +117,8 @@ async function runWorker() {
         continue
       }
 
+      console.log(`[Worker] 🔄 Starting new job processing cycle`)
+
       const jobStartTime = Date.now()
       jobMetrics.totalJobs++
 
@@ -132,6 +136,7 @@ async function runWorker() {
         .finally(() => {
           activeJobs.delete(jobPromise)
           const activeCount = activeJobs.size
+          console.log(`[Worker] ✅ Job ${job.id} finished, active jobs: ${activeCount}/${config.workerConcurrency}`)
           if (activeCount > 0) {
             console.log(`[Worker] 📊 Active jobs: ${activeCount}/${config.workerConcurrency}`)
           }

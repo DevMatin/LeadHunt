@@ -25,3 +25,4 @@ CREATE INDEX IF NOT EXISTS lead_enrichments_email_idx
   ON lead_enrichments(email);
 
 
+

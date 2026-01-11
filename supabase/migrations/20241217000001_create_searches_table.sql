@@ -33,3 +33,4 @@ CREATE POLICY "Users can delete own searches"
 
 
 
+

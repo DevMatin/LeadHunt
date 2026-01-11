@@ -75,3 +75,4 @@ CREATE POLICY "Users can delete own company_emails"
   ON company_emails FOR DELETE
   USING (auth.uid() = owner_user_id);
 
+

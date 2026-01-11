@@ -744,6 +744,8 @@ export async function searchOrganizations(
     organization_locations?: string[]
     q_keywords?: string
     maxResults?: number
+    excludeApolloIds?: Set<string>
+    excludeWebsites?: Set<string>
   }
 ): Promise<ApolloOrganization[]> {
   console.log('\n[Apollo Enrich] 🏢 searchOrganizations START')
@@ -751,11 +753,14 @@ export async function searchOrganizations(
 
   const results: ApolloOrganization[] = []
   const maxResults = options.maxResults || 50
+  const excludeApolloIds = options.excludeApolloIds || new Set<string>()
+  const excludeWebsites = options.excludeWebsites || new Set<string>()
 
   try {
     const client = createApolloClient()
     let page = 1
     let totalFound = 0
+    let totalSkipped = 0
 
     while (totalFound < maxResults) {
       const perPage = Math.min(25, maxResults - totalFound)
@@ -779,6 +784,23 @@ export async function searchOrganizations(
 
       for (const org of organizations) {
         if (totalFound >= maxResults) break
+
+        if (org.id && excludeApolloIds.has(org.id)) {
+          totalSkipped++
+          console.log(`[Apollo Enrich] ⏭️  Skipping duplicate organization ID: ${org.id}`)
+          continue
+        }
+
+        const website = org.primary_domain || org.website_url
+        if (website) {
+          const normalizedWebsite = website.startsWith('http') ? website : `https://${website}`
+          if (excludeWebsites.has(normalizedWebsite)) {
+            totalSkipped++
+            console.log(`[Apollo Enrich] ⏭️  Skipping duplicate website: ${normalizedWebsite}`)
+            continue
+          }
+        }
+
         results.push(org)
         totalFound++
       }
@@ -788,13 +810,16 @@ export async function searchOrganizations(
         !searchResponse.pagination.total_entries ||
         page * perPage >= searchResponse.pagination.total_entries
       ) {
+        if (totalFound < maxResults && totalSkipped > 0) {
+          console.log(`[Apollo Enrich] ⚠️  Reached end of results but only found ${totalFound}/${maxResults} new organizations (${totalSkipped} duplicates skipped)`)
+        }
         break
       }
 
       page++
     }
 
-    console.log(`[Apollo Enrich] ✅ searchOrganizations completed: ${results.length} organizations found`)
+    console.log(`[Apollo Enrich] ✅ searchOrganizations completed: ${results.length} organizations found (${totalSkipped} duplicates skipped)`)
     console.log('[Apollo Enrich] ✅ END searchOrganizations\n')
 
     return results

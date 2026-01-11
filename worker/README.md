@@ -49,3 +49,4 @@ Siehe `docker-compose.example.yml` und `Dockerfile`.
 - Confidence-Scoring für gefundene E-Mails
 - Rate Limiting (1 Request/Sekunde)
 
+

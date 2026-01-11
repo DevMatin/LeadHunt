@@ -136,16 +136,44 @@ async function checkSkipAfterLoad(
       return { skip: true, reason: 'HTTP 429 Too Many Requests', code: 'HTTP_429' }
     }
 
+    const title = await page.title().catch(() => '')
+    const lowerTitle = title.toLowerCase()
+    
+    if (
+      lowerTitle.includes('just a moment') ||
+      lowerTitle.includes('checking your browser') ||
+      lowerTitle.includes('please wait')
+    ) {
+      return { skip: true, reason: 'Captcha/Bot Protection detected (title)', code: 'CAPTCHA' }
+    }
+
     const content = await page.content()
     const lowerContent = content.toLowerCase()
 
+    const hasCloudflareChallenge = 
+      (lowerContent.includes('cf-browser-verification') ||
+       lowerContent.includes('cf-challenge') ||
+       lowerContent.includes('challenge-platform') ||
+       lowerContent.includes('cf-ray')) &&
+      (lowerContent.includes('just a moment') ||
+       lowerContent.includes('checking your browser') ||
+       lowerContent.includes('ddos protection'))
+
+    if (hasCloudflareChallenge) {
+      return { skip: true, reason: 'Cloudflare Bot Protection detected', code: 'CAPTCHA' }
+    }
+
+    const bodyText = await page.textContent('body').catch(() => '') || ''
+    const lowerBodyText = bodyText.toLowerCase()
+    
     if (
-      lowerContent.includes('captcha') ||
-      lowerContent.includes('cloudflare') ||
-      lowerContent.includes('attention required') ||
-      lowerContent.includes('bot protection')
+      lowerBodyText.includes('captcha') &&
+      (lowerBodyText.includes('verify') || lowerBodyText.includes('human') || lowerBodyText.includes('robot'))
     ) {
-      return { skip: true, reason: 'Captcha/Bot Protection detected', code: 'CAPTCHA' }
+      const hasCaptchaForm = await page.$('form[action*="captcha"], iframe[src*="captcha"], div[id*="captcha"]').catch(() => null)
+      if (hasCaptchaForm) {
+        return { skip: true, reason: 'Captcha form detected', code: 'CAPTCHA' }
+      }
     }
 
     const metaRobots = await page.$eval('meta[name="robots"]', (el) =>
@@ -207,26 +235,60 @@ export async function crawlCompanyWebsite(website: string): Promise<CrawlResult>
     context = await browser.newContext({
       userAgent:
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      viewport: { width: 1920, height: 1080 },
+      locale: 'en-US',
+      timezoneId: 'America/New_York',
+      ignoreHTTPSErrors: config.ignoreSSLErrors,
+      extraHTTPHeaders: {
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'DNT': '1',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+      },
     })
 
     const homepagePage = await context.newPage()
     try {
-      const robotsTxtBlocked = await checkRobotsTxt(website)
-      if (robotsTxtBlocked) {
-        throw new CrawlSkippedError('robots.txt Disallow: /', 'ROBOTS_TXT')
+      if (!config.ignoreRobotsTxt) {
+        const robotsTxtBlocked = await checkRobotsTxt(website)
+        if (robotsTxtBlocked) {
+          throw new CrawlSkippedError('robots.txt Disallow: /', 'ROBOTS_TXT')
+        }
       }
 
-      const response = await homepagePage.goto(website, {
-        waitUntil: 'domcontentloaded',
-        timeout: config.pageTimeoutMs,
-      })
+      let response
+      try {
+        response = await homepagePage.goto(website, {
+          waitUntil: 'domcontentloaded',
+          timeout: config.pageTimeoutMs,
+        })
+      } catch (gotoError) {
+        const errorMsg = gotoError instanceof Error ? gotoError.message : String(gotoError)
+        if (errorMsg.includes('net::ERR_NAME_NOT_RESOLVED') || errorMsg.includes('DNS')) {
+          throw new CrawlSkippedError('DNS resolution failed', 'DNS_ERROR')
+        }
+        if (
+          errorMsg.includes('SSL') ||
+          errorMsg.includes('certificate') ||
+          errorMsg.includes('ERR_CERT') ||
+          errorMsg.includes('CERT_')
+        ) {
+          throw new CrawlSkippedError('SSL/Certificate error', 'SSL_ERROR')
+        }
+        if (errorMsg.includes('timeout')) {
+          throw new CrawlSkippedError('Request timeout', 'TIMEOUT')
+        }
+        throw gotoError
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 2000))
 
       const skipCheck = await checkSkipAfterLoad(homepagePage, response, website)
       if (skipCheck.skip) {
         throw new CrawlSkippedError(skipCheck.reason || 'Unknown reason', skipCheck.code || 'UNKNOWN')
       }
-
-      await new Promise((resolve) => setTimeout(resolve, 1000))
 
       const footerEmails = extractEmailsFromFooter(
         await homepagePage.content(),
@@ -244,13 +306,15 @@ export async function crawlCompanyWebsite(website: string): Promise<CrawlResult>
         }
       }
 
+      const maxLinksPerPage = HARD_LIMITS.MAX_LINKS_PER_PAGE
       const allLinks = await homepagePage.$$eval(
         'a[href]',
-        (links: Element[]) =>
+        (links: Element[], maxLinks: number) =>
           links
             .map((link: Element) => (link as HTMLAnchorElement).href)
             .filter((href: string) => href)
-            .slice(0, HARD_LIMITS.MAX_LINKS_PER_PAGE)
+            .slice(0, maxLinks),
+        maxLinksPerPage
       )
 
       let impressumUrl: string | null = null
@@ -309,12 +373,12 @@ export async function crawlCompanyWebsite(website: string): Promise<CrawlResult>
             timeout: config.pageTimeoutMs,
           })
 
+          await new Promise((resolve) => setTimeout(resolve, 2000))
+
           const skipCheck = await checkSkipAfterLoad(crawlPage, response, url)
           if (skipCheck.skip) {
             continue
           }
-
-          await new Promise((resolve) => setTimeout(resolve, 1000))
 
           if (Date.now() >= deadline) break
 
@@ -349,7 +413,12 @@ export async function crawlCompanyWebsite(website: string): Promise<CrawlResult>
           if (errorMsg.includes('net::ERR_NAME_NOT_RESOLVED') || errorMsg.includes('DNS')) {
             throw new CrawlSkippedError('DNS resolution failed', 'DNS_ERROR')
           }
-          if (errorMsg.includes('SSL') || errorMsg.includes('certificate')) {
+          if (
+            errorMsg.includes('SSL') ||
+            errorMsg.includes('certificate') ||
+            errorMsg.includes('ERR_CERT') ||
+            errorMsg.includes('CERT_')
+          ) {
             throw new CrawlSkippedError('SSL/Certificate error', 'SSL_ERROR')
           }
           if (errorMsg.includes('timeout')) {
