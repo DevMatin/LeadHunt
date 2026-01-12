@@ -1,12 +1,24 @@
 import { createAdminClient } from './admin'
-import type { EnrichResponse, MatchQuality } from '@/lib/integrations/apollo/types'
+
+export type MatchQuality = 'exact' | 'mismatch' | 'unknown'
+
+export interface EnrichResponse {
+  person: {
+    name?: string
+    title?: string
+  } | null
+  organization: {
+    name?: string
+    domain?: string
+  } | null
+  matchQuality: MatchQuality
+}
 
 export interface LeadEnrichment {
   id: string
   email: string
   input_company_name: string
   match_quality: MatchQuality
-  apollo_person_id?: string | null
   person_name?: string | null
   person_title?: string | null
   organization_name?: string | null
@@ -36,7 +48,6 @@ export async function saveEnrichment(
       email: params.email,
       input_company_name: params.inputCompanyName,
       match_quality: params.enrichResponse.matchQuality,
-      apollo_person_id: params.enrichResponse.person?.apolloId || null,
       person_name: personName,
       person_title: params.enrichResponse.person?.title || null,
       organization_name: params.enrichResponse.organization?.name || null,

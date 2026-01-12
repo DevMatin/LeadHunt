@@ -5,6 +5,7 @@ export interface EmailMatch {
 }
 
 const EMAIL_REGEX = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g
+const EMAIL_REGEX_WITH_SPACES = /[a-zA-Z0-9._%+-]+\s*@\s*[a-zA-Z0-9.-]+\s*\.\s*[a-zA-Z]{2,}/g
 const EMAIL_VALIDATION_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/
 const MAX_EMAIL_LENGTH = 254
 
@@ -29,6 +30,36 @@ const FREEMAILER_DOMAINS = [
   'protonmail.com',
   'yandex.com',
   'gmx.com',
+  'gmx.de',
+  'gmx.net',
+  'gmx.at',
+  'gmx.ch',
+  'web.de',
+  't-online.de',
+  't-online.com',
+  'freenet.de',
+  '1und1.de',
+  'online.de',
+  'arcor.de',
+  'live.com',
+  'msn.com',
+  'ymail.com',
+  'rocketmail.com',
+  'yahoo.de',
+  'yahoo.co.uk',
+  'yahoo.fr',
+  'yahoo.it',
+  'yahoo.es',
+  'zoho.com',
+  'mail.ru',
+  'inbox.com',
+  'fastmail.com',
+  'tutanota.com',
+  'mailbox.org',
+  'posteo.de',
+  'hey.com',
+  'proton.me',
+  'pm.me',
 ]
 
 function isBlockedEmail(email: string): boolean {
@@ -54,10 +85,19 @@ function normalizeObfuscatedEmail(text: string): string | null {
 
   normalized = normalized.replace(/\s*\[at\]\s*/gi, '@')
   normalized = normalized.replace(/\s*\(at\)\s*/gi, '@')
+  normalized = normalized.replace(/\s*\[AT\]\s*/gi, '@')
+  normalized = normalized.replace(/\s*\(AT\)\s*/gi, '@')
+  normalized = normalized.replace(/\s+at\s+/gi, '@')
+  normalized = normalized.replace(/\s+AT\s+/gi, '@')
   normalized = normalized.replace(/\s*\[dot\]\s*/gi, '.')
   normalized = normalized.replace(/\s*\(dot\)\s*/gi, '.')
+  normalized = normalized.replace(/\s*\[DOT\]\s*/gi, '.')
+  normalized = normalized.replace(/\s*\(DOT\)\s*/gi, '.')
   normalized = normalized.replace(/\s+dot\s+/gi, '.')
+  normalized = normalized.replace(/\s+DOT\s+/gi, '.')
   normalized = normalized.replace(/\s*@\s*(\w+)\s+dot\s+(\w+)/gi, '@$1.$2')
+  normalized = normalized.replace(/\s*@\s*(\w+)\s+DOT\s+(\w+)/gi, '@$1.$2')
+  normalized = normalized.replace(/\s+/g, '')
 
   normalized = normalized.toLowerCase().trim().replace(/[.,;:!?]+$/, '')
 
@@ -78,6 +118,10 @@ export function extractObfuscatedEmails(
     /[a-zA-Z0-9._%+-]+\(at\)[a-zA-Z0-9.-]+(?:\(dot\)[a-zA-Z]{2,})?/gi,
     /[a-zA-Z0-9._%+-]+\s*@\s*[a-zA-Z0-9.-]+\s+dot\s+[a-zA-Z]{2,}/gi,
     /[a-zA-Z0-9._%+-]+\s*\[at\]\s*[a-zA-Z0-9.-]+\s*\[dot\]\s*[a-zA-Z]{2,}/gi,
+    /[a-zA-Z0-9._%+-]+\s+at\s+[a-zA-Z0-9.-]+\s+dot\s+[a-zA-Z]{2,}/gi,
+    /[a-zA-Z0-9._%+-]+\s+AT\s+[a-zA-Z0-9.-]+\s+DOT\s+[a-zA-Z]{2,}/gi,
+    /[a-zA-Z0-9._%+-]+\s*\[AT\]\s*[a-zA-Z0-9.-]+(?:\s*\[DOT\]\s*[a-zA-Z]{2,})?/gi,
+    /[a-zA-Z0-9._%+-]+\(AT\)[a-zA-Z0-9.-]+(?:\(DOT\)[a-zA-Z]{2,})?/gi,
   ]
 
   for (const pattern of obfuscationPatterns) {
@@ -121,8 +165,9 @@ export function extractEmailsFromFooter(
       const mailtoEmails = extractEmailsFromMailtoLinks(footerText, url)
       const textEmails = extractEmailsFromText(footerText, url, 'footer')
       const obfuscatedEmails = extractObfuscatedEmails(footerText, url)
+      const labelEmails = extractEmailsWithLabels(footerText, url, 'footer')
       
-      results.push(...mailtoEmails, ...textEmails, ...obfuscatedEmails)
+      results.push(...mailtoEmails, ...textEmails, ...obfuscatedEmails, ...labelEmails)
     }
   }
 
@@ -153,19 +198,83 @@ function calculateConfidenceScore(
   return 50
 }
 
+export function extractEmailsWithLabels(
+  text: string,
+  url: string,
+  pageType: 'homepage' | 'contact' | 'impressum' | 'footer' | 'mailto'
+): EmailMatch[] {
+  const results: EmailMatch[] = []
+  const emailLabelPatterns = [
+    /(?:e-?mail|kontakt|contact|adresse|address|e-?mail-?adresse|kontakt-?e-?mail)[\s:]*([a-zA-Z0-9._%+-]+\s*@\s*[a-zA-Z0-9.-]+\s*\.\s*[a-zA-Z]{2,})/gi,
+    /(?:e-?mail|kontakt|contact|adresse|address|e-?mail-?adresse|kontakt-?e-?mail)[\s:]*([a-zA-Z0-9._%+-]+\s*\[at\]\s*[a-zA-Z0-9.-]+(?:\s*\[dot\]\s*[a-zA-Z]{2,})?)/gi,
+    /(?:e-?mail|kontakt|contact|adresse|address|e-?mail-?adresse|kontakt-?e-?mail)[\s:]*([a-zA-Z0-9._%+-]+\(at\)[a-zA-Z0-9.-]+(?:\(dot\)[a-zA-Z]{2,})?)/gi,
+    /(?:e-?mail|kontakt|contact|adresse|address|e-?mail-?adresse|kontakt-?e-?mail)[\s:]*([a-zA-Z0-9._%+-]+\s+at\s+[a-zA-Z0-9.-]+\s+dot\s+[a-zA-Z]{2,})/gi,
+    /(?:e-?mail|kontakt|contact)[\s:]+([a-zA-Z0-9._%+-]+)\s*(?:@|at|\[at\]|\(at\))\s*([a-zA-Z0-9.-]+)\s*(?:\.|dot|\[dot\]|\(dot\))\s*([a-zA-Z]{2,})/gi,
+  ]
+
+  for (const pattern of emailLabelPatterns) {
+    const matches = Array.from(text.matchAll(pattern))
+    for (const match of matches) {
+      if (match[1]) {
+        let emailText = match[1].trim()
+        
+        if (match[2] && match[3]) {
+          emailText = `${match[1]}@${match[2]}.${match[3]}`
+        }
+        
+        let normalized = emailText.toLowerCase().trim()
+        normalized = normalized.replace(/\s+/g, '')
+        
+        const obfuscated = normalizeObfuscatedEmail(emailText)
+        if (obfuscated) {
+          normalized = obfuscated
+        }
+        
+        normalized = normalized.replace(/[.,;:!?]+$/, '')
+        
+        if (!validateEmail(normalized) || isBlockedEmail(normalized)) {
+          continue
+        }
+
+        const isFreemail = isFreemailer(normalized)
+        let confidence = calculateConfidenceScore(normalized, pageType, false)
+        
+        if (isFreemail) {
+          confidence = Math.max(confidence - 10, 50)
+        }
+        
+        if (confidence >= 50) {
+          results.push({
+            email: normalized,
+            source_url: url,
+            confidence_score: Math.max(confidence, 80),
+          })
+        }
+      }
+    }
+  }
+
+  return Array.from(new Map(results.map((r) => [r.email, r])).values())
+}
+
 export function extractEmailsFromText(
   text: string,
   url: string,
   pageType: 'homepage' | 'contact' | 'impressum' | 'footer' | 'mailto',
   limit: number = 10
 ): EmailMatch[] {
-  const matches = text.match(EMAIL_REGEX)
-  if (!matches) {
+  const labelEmails = extractEmailsWithLabels(text, url, pageType)
+  
+  const matches1 = text.match(EMAIL_REGEX) || []
+  const matches2 = text.match(EMAIL_REGEX_WITH_SPACES) || []
+  
+  const allMatches = [...matches1, ...matches2]
+  if (allMatches.length === 0 && labelEmails.length === 0) {
     return []
   }
 
-  const uniqueEmails = Array.from(new Set(matches))
-  const results: EmailMatch[] = []
+  const uniqueEmails = Array.from(new Set(allMatches))
+  const results: EmailMatch[] = [...labelEmails]
 
   for (const email of uniqueEmails) {
     if (results.length >= limit) {
@@ -176,7 +285,10 @@ export function extractEmailsFromText(
       continue
     }
 
-    const normalized = email.toLowerCase().trim().replace(/[.,;:!?]+$/, '')
+    let normalized = email.toLowerCase().trim()
+    normalized = normalized.replace(/\s+/g, '')
+    normalized = normalized.replace(/[.,;:!?]+$/, '')
+    
     if (!validateEmail(normalized)) {
       continue
     }
@@ -184,19 +296,22 @@ export function extractEmailsFromText(
     const isFreemail = isFreemailer(normalized)
     let confidence = calculateConfidenceScore(normalized, pageType, false)
 
-    if (isFreemail && confidence >= 50) {
-      confidence = 45
+    if (isFreemail) {
+      confidence = Math.max(confidence - 10, 50)
     }
 
     if (confidence < 50) {
       continue
     }
 
-    results.push({
-      email: normalized,
-      source_url: url,
-      confidence_score: confidence,
-    })
+    const existingEmail = results.find((r) => r.email === normalized)
+    if (!existingEmail) {
+      results.push({
+        email: normalized,
+        source_url: url,
+        confidence_score: confidence,
+      })
+    }
   }
 
   return results

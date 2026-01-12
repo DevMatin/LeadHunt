@@ -1,9 +1,10 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useEffect, useState, useMemo } from 'react'
+import { useSearchParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ExternalLink, Download } from 'lucide-react'
+import { ExternalLink, Download, RefreshCw } from 'lucide-react'
+import { translateCategory } from '@/lib/utils/categoryTranslations'
 
 interface Company {
   id: string
@@ -22,27 +23,82 @@ interface Company {
   email_count?: number
 }
 
+interface Category {
+  category_name: string
+  business_count: number
+}
+
 export default function CompaniesPage() {
   const searchParams = useSearchParams()
+  const router = useRouter()
   const [companies, setCompanies] = useState<Company[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [industryFilter, setIndustryFilter] = useState('')
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
+  const [availableCategories, setAvailableCategories] = useState<Category[]>([])
+  const [categoriesLoading, setCategoriesLoading] = useState(false)
   const [locationFilter, setLocationFilter] = useState('')
   const [industries, setIndustries] = useState<string[]>([])
   const [locations, setLocations] = useState<string[]>([])
   const [filtersLoading, setFiltersLoading] = useState(true)
   const [selectedCompanies, setSelectedCompanies] = useState<Set<string>>(new Set())
+  const [recrawling, setRecrawling] = useState(false)
+
+  const fetchCategories = async () => {
+    try {
+      setCategoriesLoading(true)
+      const response = await fetch('/api/companies/categories')
+      if (response.ok) {
+        const data = await response.json()
+        setAvailableCategories(data.categories || [])
+      }
+    } catch (err) {
+      console.error('Fehler beim Laden der Kategorien:', err)
+    } finally {
+      setCategoriesLoading(false)
+    }
+  }
 
   useEffect(() => {
+    const categoryParam = searchParams.get('category')
+    const locationParam = searchParams.get('location')
+    
+    if (categoryParam) {
+      setSelectedCategory(categoryParam)
+    }
+    if (locationParam) {
+      setLocationFilter(locationParam)
+    }
+    
     fetchFilters()
-    fetchCompanies()
+    fetchCategories()
   }, [])
 
   useEffect(() => {
+    const params = new URLSearchParams()
+    const searchId = searchParams.get('search')
+    if (searchId) params.append('search', searchId)
+    if (selectedCategory) params.append('category', selectedCategory)
+    if (locationFilter) params.append('location', locationFilter)
+    
+    const currentCategory = searchParams.get('category')
+    const currentLocation = searchParams.get('location')
+    const currentSearch = searchParams.get('search')
+    
+    const needsUpdate = 
+      currentCategory !== selectedCategory ||
+      currentLocation !== locationFilter ||
+      currentSearch !== searchId
+    
+    if (needsUpdate) {
+      const newQueryString = params.toString()
+      const newUrl = `/companies${newQueryString ? `?${newQueryString}` : ''}`
+      router.replace(newUrl)
+    }
+    
     fetchCompanies()
     setSelectedCompanies(new Set())
-  }, [industryFilter, locationFilter, searchParams])
+  }, [selectedCategory, locationFilter])
 
   const fetchFilters = async () => {
     setFiltersLoading(true)
@@ -61,6 +117,7 @@ export default function CompaniesPage() {
     }
   }
 
+
   const fetchCompanies = async () => {
     setLoading(true)
     setError(null)
@@ -69,7 +126,7 @@ export default function CompaniesPage() {
       const params = new URLSearchParams()
       const searchId = searchParams.get('search')
       if (searchId) params.append('search', searchId)
-      if (industryFilter) params.append('industry', industryFilter)
+      if (selectedCategory) params.append('category', selectedCategory)
       if (locationFilter) params.append('location', locationFilter)
 
       const response = await fetch(`/api/companies?${params.toString()}`)
@@ -226,6 +283,57 @@ export default function CompaniesPage() {
     return hasEmail
   }).length
 
+  const companiesWithoutEmails = companies.filter((c) => {
+    const hasEmail = (c.owner_email && c.owner_email.trim() !== '') || (c.email && c.email.trim() !== '')
+    const hasEmailCount = (c.email_count ?? 0) > 0
+    return !hasEmail && !hasEmailCount && c.website
+  })
+
+  const handleRecrawlNoEmails = async () => {
+    if (companiesWithoutEmails.length === 0) {
+      alert('Keine Unternehmen ohne E-Mails gefunden.')
+      return
+    }
+
+    const confirmed = confirm(
+      `${companiesWithoutEmails.length} Unternehmen ohne E-Mails gefunden.\n\nMöchten Sie für diese Unternehmen einen Re-Crawl starten?`
+    )
+
+    if (!confirmed) return
+
+    setRecrawling(true)
+    try {
+      const companyIds = companiesWithoutEmails.map((c) => c.id)
+      const response = await fetch('/api/crawl/enqueue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          company_ids: companyIds,
+          force: true,
+        }),
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Fehler beim Starten des Re-Crawls')
+      }
+
+      const result = await response.json()
+      alert(
+        `✅ Re-Crawl gestartet!\n\n- ${result.jobs_created || 0} Jobs erstellt\n- ${result.skipped || 0} übersprungen`
+      )
+
+      setTimeout(() => {
+        fetchCompanies()
+      }, 2000)
+    } catch (error) {
+      console.error('Re-Crawl error:', error)
+      alert(`❌ Fehler: ${error instanceof Error ? error.message : 'Unbekannter Fehler'}`)
+    } finally {
+      setRecrawling(false)
+    }
+  }
+
   return (
     <div className="max-w-7xl mx-auto">
       <div className="flex items-center justify-between mb-6">
@@ -248,6 +356,16 @@ export default function CompaniesPage() {
               Als CSV exportieren
             </button>
           )}
+          {companiesWithoutEmails.length > 0 && (
+            <button
+              onClick={handleRecrawlNoEmails}
+              disabled={recrawling}
+              className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <RefreshCw className={`w-4 h-4 ${recrawling ? 'animate-spin' : ''}`} />
+              Re-Crawl ohne E-Mails ({companiesWithoutEmails.length})
+            </button>
+          )}
           <Link
             href="/search"
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
@@ -260,20 +378,23 @@ export default function CompaniesPage() {
       <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label htmlFor="industryFilter" className="block mb-2 text-gray-700">
-              Branche filtern
+            <label htmlFor="categoryFilter" className="block mb-2 text-gray-700">
+              Branche / Kategorie filtern
             </label>
             <select
-              id="industryFilter"
-              value={industryFilter}
-              onChange={(e) => setIndustryFilter(e.target.value)}
+              id="categoryFilter"
+              value={selectedCategory || ''}
+              onChange={(e) => {
+                const value = e.target.value || null
+                setSelectedCategory(value)
+              }}
               className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
-              disabled={filtersLoading}
+              disabled={categoriesLoading}
             >
-              <option value="">Alle Branchen</option>
-              {industries.map((industry) => (
-                <option key={industry} value={industry}>
-                  {industry}
+              <option value="">Alle Kategorien</option>
+              {availableCategories.map((cat) => (
+                <option key={cat.category_name} value={cat.category_name}>
+                  {translateCategory(cat.category_name)}
                 </option>
               ))}
             </select>
@@ -285,7 +406,9 @@ export default function CompaniesPage() {
             <select
               id="locationFilter"
               value={locationFilter}
-              onChange={(e) => setLocationFilter(e.target.value)}
+              onChange={(e) => {
+                setLocationFilter(e.target.value)
+              }}
               className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
               disabled={filtersLoading}
             >

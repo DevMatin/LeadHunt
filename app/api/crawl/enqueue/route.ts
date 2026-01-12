@@ -116,29 +116,83 @@ export async function POST(request: Request) {
       )
     }
 
-    const { company_id, search_id, force } = body as {
+    const { company_id, company_ids, search_id, force } = body as {
       company_id?: string
+      company_ids?: string[]
       search_id?: string
       force?: boolean
     }
 
     console.log(`[API POST] 📋 Extracted params:`)
     console.log(`[API POST]   - company_id: ${company_id || 'N/A'}`)
+    console.log(`[API POST]   - company_ids: ${company_ids ? `${company_ids.length} IDs` : 'N/A'}`)
     console.log(`[API POST]   - search_id: ${search_id || 'N/A'}`)
     console.log(`[API POST]   - force: ${force || false}`)
 
-    if (!company_id && !search_id) {
-      console.error(`[API POST] ❌ Missing required fields: company_id or search_id`)
+    if (!company_id && !company_ids && !search_id) {
+      console.error(`[API POST] ❌ Missing required fields: company_id, company_ids, or search_id`)
       logApiRequest('POST', '/api/crawl/enqueue', {
         user,
         body,
         statusCode: 400,
-        error: 'company_id or search_id is required',
+        error: 'company_id, company_ids, or search_id is required',
       })
       return NextResponse.json(
-        { error: 'company_id or search_id is required' },
+        { error: 'company_id, company_ids, or search_id is required' },
         { status: 400 }
       )
+    }
+
+    if (company_ids && company_ids.length > 0) {
+      const result = await createCrawlJobsForCompanies(
+        supabase,
+        company_ids,
+        user.id,
+        undefined,
+        { force }
+      )
+
+      if (result.errors.length > 0) {
+        console.error(`[API POST] ❌ Errors creating jobs:`, result.errors)
+        logApiRequest('POST', '/api/crawl/enqueue', {
+          user,
+          body,
+          statusCode: 500,
+          error: result.errors[0].reason,
+        })
+        return NextResponse.json(
+          { error: 'Failed to create some crawl jobs', errors: result.errors },
+          { status: 500 }
+        )
+      }
+
+      const { data: newJobs } = await supabase
+        .from('crawl_jobs')
+        .select('id, company_id')
+        .eq('owner_user_id', user.id)
+        .in('company_id', company_ids)
+        .eq('status', 'pending')
+        .order('created_at', { ascending: false })
+        .limit(result.created)
+
+      const duration = Date.now() - startTime
+      console.log(`[API POST] ⏱️  Duration: ${duration}ms`)
+      console.log(`[API POST] ✅ Created ${result.created} jobs`)
+
+      const response = {
+        jobs_created: result.created,
+        job_ids: newJobs?.map((j) => j.id) || [],
+        skipped: result.skipped,
+        skippedReasons: result.skippedReasons,
+      }
+      logApiRequest('POST', '/api/crawl/enqueue', {
+        user,
+        body,
+        statusCode: 201,
+        response,
+      })
+
+      return NextResponse.json(response, { status: 201 })
     }
 
     if (company_id) {

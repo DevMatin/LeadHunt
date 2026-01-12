@@ -210,7 +210,9 @@ export async function enrichCompany(
 export async function searchOrganizations(
   options: {
     location?: string
+    location_coordinate?: string
     industry?: string
+    category?: string
     maxResults?: number
     excludeDataForSEOIds?: Set<string>
     excludeWebsites?: Set<string>
@@ -237,8 +239,10 @@ export async function searchOrganizations(
 
       const searchResponse = await client.searchOrganizations({
         location: options.location,
+        location_coordinate: options.location_coordinate,
         industry: options.industry,
         keyword: options.industry,
+        category: options.category,
         page,
         per_page: perPage,
       })

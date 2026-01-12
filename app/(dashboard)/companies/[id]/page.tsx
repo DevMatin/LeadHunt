@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, ExternalLink, Mail, Phone, MapPin, Building2, Search, RefreshCw } from 'lucide-react'
+import { ArrowLeft, ExternalLink, Mail, Phone, MapPin, Building2, Search, RefreshCw, Star, Map, Globe, User, Award } from 'lucide-react'
+import { translateCategory } from '@/lib/utils/categoryTranslations'
 
 interface Company {
   id: string
@@ -17,6 +18,25 @@ interface Company {
   status: string
   created_at: string
   updated_at: string
+  owner_first_name?: string | null
+  owner_last_name?: string | null
+  owner_email?: string | null
+  owner_title?: string | null
+  dataforseo_category_ids?: string[] | null
+  dataforseo_city?: string | null
+  dataforseo_zip?: string | null
+  dataforseo_country_code?: string | null
+  dataforseo_latitude?: number | null
+  dataforseo_longitude?: number | null
+  dataforseo_rating_value?: number | null
+  dataforseo_rating_votes_count?: number | null
+  dataforseo_price_level?: string | null
+  dataforseo_is_claimed?: boolean | null
+  dataforseo_logo?: string | null
+  dataforseo_main_image?: string | null
+  dataforseo_place_id?: string | null
+  dataforseo_cid?: string | null
+  dataforseo_enrichment_status?: string | null
   crawl_status?: {
     status: string
     finished_at: string | null
@@ -259,6 +279,267 @@ export default function CompanyDetailPage() {
             <div>
               <h3 className="mb-4">Beschreibung</h3>
               <p className="text-gray-600">{company.description}</p>
+            </div>
+          )}
+
+          {(company.owner_first_name || company.owner_last_name || company.owner_email || company.owner_title) && (
+            <div>
+              <h3 className="mb-4 flex items-center gap-2">
+                <User className="w-5 h-5" />
+                Geschäftsführer / Kontaktperson
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {(company.owner_first_name || company.owner_last_name) && (
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
+                      <User className="w-5 h-5 text-purple-600" />
+                    </div>
+                    <div>
+                      <p className="text-gray-500">Name</p>
+                      <p className="text-gray-900">
+                        {[company.owner_first_name, company.owner_last_name].filter(Boolean).join(' ') || '-'}
+                      </p>
+                    </div>
+                  </div>
+                )}
+                {company.owner_title && (
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
+                      <Award className="w-5 h-5 text-purple-600" />
+                    </div>
+                    <div>
+                      <p className="text-gray-500">Position</p>
+                      <p className="text-gray-900">{company.owner_title}</p>
+                    </div>
+                  </div>
+                )}
+                {company.owner_email && (
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
+                      <Mail className="w-5 h-5 text-purple-600" />
+                    </div>
+                    <div>
+                      <p className="text-gray-500">E-Mail</p>
+                      <a
+                        href={`mailto:${company.owner_email}`}
+                        className="text-blue-600 hover:text-blue-700"
+                      >
+                        {company.owner_email}
+                      </a>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {(company.dataforseo_category_ids && company.dataforseo_category_ids.length > 0) && (
+            <div>
+              <h3 className="mb-4 flex items-center gap-2">
+                <Building2 className="w-5 h-5" />
+                Kategorien
+              </h3>
+              <div className="flex flex-wrap gap-2">
+                {company.dataforseo_category_ids.map((catId) => (
+                  <span
+                    key={catId}
+                    className="px-3 py-1 rounded-full bg-blue-100 text-blue-700 text-sm"
+                  >
+                    {translateCategory(catId)}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {(company.dataforseo_rating_value || company.dataforseo_rating_votes_count || company.dataforseo_price_level) && (
+            <div>
+              <h3 className="mb-4 flex items-center gap-2">
+                <Star className="w-5 h-5" />
+                Bewertungen & Details
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {company.dataforseo_rating_value && (
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-yellow-100 rounded-lg flex items-center justify-center">
+                      <Star className="w-5 h-5 text-yellow-600" />
+                    </div>
+                    <div>
+                      <p className="text-gray-500">Bewertung</p>
+                      <p className="text-gray-900">
+                        {company.dataforseo_rating_value.toFixed(1)} ⭐
+                        {company.dataforseo_rating_votes_count && (
+                          <span className="text-sm text-gray-500 ml-2">
+                            ({company.dataforseo_rating_votes_count} Bewertungen)
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                )}
+                {company.dataforseo_price_level && (
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
+                      <span className="text-green-600 font-bold">€</span>
+                    </div>
+                    <div>
+                      <p className="text-gray-500">Preisniveau</p>
+                      <p className="text-gray-900">{company.dataforseo_price_level}</p>
+                    </div>
+                  </div>
+                )}
+                {company.dataforseo_is_claimed !== null && (
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+                      <Globe className="w-5 h-5 text-blue-600" />
+                    </div>
+                    <div>
+                      <p className="text-gray-500">Verifiziert</p>
+                      <p className="text-gray-900">
+                        {company.dataforseo_is_claimed ? 'Ja' : 'Nein'}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {(company.dataforseo_latitude && company.dataforseo_longitude) && (
+            <div>
+              <h3 className="mb-4 flex items-center gap-2">
+                <Map className="w-5 h-5" />
+                Standort (Koordinaten)
+              </h3>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center">
+                  <MapPin className="w-5 h-5 text-red-600" />
+                </div>
+                <div>
+                  <p className="text-gray-500">GPS-Koordinaten</p>
+                  <a
+                    href={`https://www.google.com/maps?q=${company.dataforseo_latitude},${company.dataforseo_longitude}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:text-blue-700"
+                  >
+                    {company.dataforseo_latitude}, {company.dataforseo_longitude}
+                  </a>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {(company.dataforseo_city || company.dataforseo_zip || company.dataforseo_country_code) && (
+            <div>
+              <h3 className="mb-4 flex items-center gap-2">
+                <MapPin className="w-5 h-5" />
+                Adressdetails
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {company.dataforseo_city && (
+                  <div>
+                    <p className="text-gray-500">Stadt</p>
+                    <p className="text-gray-900">{company.dataforseo_city}</p>
+                  </div>
+                )}
+                {company.dataforseo_zip && (
+                  <div>
+                    <p className="text-gray-500">PLZ</p>
+                    <p className="text-gray-900">{company.dataforseo_zip}</p>
+                  </div>
+                )}
+                {company.dataforseo_country_code && (
+                  <div>
+                    <p className="text-gray-500">Land</p>
+                    <p className="text-gray-900">{company.dataforseo_country_code}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {(company.dataforseo_logo || company.dataforseo_main_image) && (
+            <div>
+              <h3 className="mb-4 flex items-center gap-2">
+                <Globe className="w-5 h-5" />
+                Bilder
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {company.dataforseo_logo && (
+                  <div>
+                    <p className="text-gray-500 mb-2">Logo</p>
+                    <img
+                      src={company.dataforseo_logo}
+                      alt={`${company.name} Logo`}
+                      className="max-w-32 max-h-32 object-contain rounded-lg border border-gray-200"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = 'none'
+                      }}
+                    />
+                  </div>
+                )}
+                {company.dataforseo_main_image && (
+                  <div>
+                    <p className="text-gray-500 mb-2">Hauptbild</p>
+                    <img
+                      src={company.dataforseo_main_image}
+                      alt={`${company.name}`}
+                      className="max-w-full max-h-64 object-cover rounded-lg border border-gray-200"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = 'none'
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {(company.dataforseo_place_id || company.dataforseo_cid) && (
+            <div>
+              <h3 className="mb-4 flex items-center gap-2">
+                <Globe className="w-5 h-5" />
+                DataForSEO IDs
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                {company.dataforseo_place_id && (
+                  <div>
+                    <p className="text-gray-500">Place ID</p>
+                    <p className="text-gray-900 font-mono">{company.dataforseo_place_id}</p>
+                  </div>
+                )}
+                {company.dataforseo_cid && (
+                  <div>
+                    <p className="text-gray-500">CID</p>
+                    <p className="text-gray-900 font-mono">{company.dataforseo_cid}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {company.dataforseo_enrichment_status && (
+            <div>
+              <h3 className="mb-4">Enrichment-Status</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <p className="text-gray-500">DataForSEO</p>
+                  <span
+                    className={`px-3 py-1 rounded-full text-sm ${
+                      company.dataforseo_enrichment_status === 'enriched'
+                        ? 'bg-green-100 text-green-700'
+                        : company.dataforseo_enrichment_status === 'failed'
+                        ? 'bg-red-100 text-red-700'
+                        : company.dataforseo_enrichment_status === 'pending'
+                        ? 'bg-yellow-100 text-yellow-700'
+                        : 'bg-gray-100 text-gray-700'
+                    }`}
+                  >
+                    {company.dataforseo_enrichment_status}
+                  </span>
+                </div>
+              </div>
             </div>
           )}
 

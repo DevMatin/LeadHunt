@@ -1,0 +1,20 @@
+-- Migration: Remove Apollo code references
+-- 
+-- This migration documents the removal of Apollo integration from the codebase.
+-- All Apollo-related code has been removed, but database fields are preserved
+-- for historical data purposes.
+--
+-- Removed code components:
+-- - lib/integrations/apollo/ (entire directory)
+-- - app/api/apollo/enrich/route.ts
+-- - Frontend UI references to Apollo enrichment status
+-- - Backend type imports from Apollo integration
+--
+-- Preserved database fields (for historical data):
+-- - companies.apollo_enrichment_status
+-- - companies.apollo_error_reason
+-- - companies.apollo_organization_id
+-- - companies.apollo_enriched_at
+-- - lead_enrichments.apollo_person_id
+--
+-- Note: The index on apollo_enrichment_status is kept as the field remains in the database.

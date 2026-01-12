@@ -29,9 +29,9 @@ export async function GET() {
 
     const { data: locations, error: locationsError } = await supabase
       .from('companies')
-      .select('location')
+      .select('location, dataforseo_city')
       .eq('user_id', authUser.id)
-      .not('location', 'is', null)
+      .or('location.not.is.null,dataforseo_city.not.is.null')
 
     if (locationsError) {
       return NextResponse.json(
@@ -44,9 +44,29 @@ export async function GET() {
       new Set(industries?.map((c) => c.industry).filter(Boolean) || [])
     ).sort()
 
-    const uniqueLocations = Array.from(
-      new Set(locations?.map((c) => c.location).filter(Boolean) || [])
-    ).sort()
+    const citySet = new Set<string>()
+    if (locations) {
+      for (const entry of locations) {
+        const city = (entry as any).dataforseo_city?.trim()
+        const loc = (entry as any).location?.trim()
+
+        if (city) {
+          citySet.add(city)
+          continue
+        }
+
+        if (loc) {
+          const parts = loc.split(',').map((p: string) => p.trim()).filter(Boolean)
+          if (parts.length > 1) {
+            citySet.add(parts[parts.length - 1])
+          } else {
+            citySet.add(parts[0])
+          }
+        }
+      }
+    }
+
+    const uniqueLocations = Array.from(citySet).sort()
 
     return NextResponse.json({
       industries: uniqueIndustries,

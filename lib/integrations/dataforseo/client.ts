@@ -2,6 +2,7 @@ import axios, { AxiosError, AxiosRequestConfig } from 'axios'
 import type {
   DataForSEOApiResponse,
   DataForSEOError,
+  DataForSEOOrganization,
   DataForSEOOrganizationSearchParams,
   DataForSEOOrganizationSearchResponse,
 } from './types'
@@ -433,20 +434,23 @@ export class DataForSEOClient {
       offset: ((params.page || 1) - 1) * (params.per_page || 25),
     }
     
+    if (params.category) {
+      requestBody.category = params.category
+      requestBody.categories = [params.category]
+    }
+    
+    if (params.industry && params.industry !== searchQuery) {
+      requestBody.industry = params.industry
+    }
+    
     if (params.location_coordinate) {
       requestBody.location_coordinate = params.location_coordinate
-      console.log(`[DataForSEO Client] 🔍 Search parameters:`)
-      console.log(`  - keyword: ${searchQuery}`)
-      console.log(`  - location_coordinate: ${params.location_coordinate}`)
     } else if (params.location) {
       const location = params.location.trim()
       
       const coordinatePattern = /^-?\d+\.?\d*,-?\d+\.?\d*,\d+\.?\d*$/
       if (coordinatePattern.test(location)) {
         requestBody.location_coordinate = location
-        console.log(`[DataForSEO Client] 🔍 Search parameters:`)
-        console.log(`  - keyword: ${searchQuery}`)
-        console.log(`  - location_coordinate: ${location}`)
       } else {
         let locationName = location
         
@@ -467,16 +471,13 @@ export class DataForSEOClient {
         }
         
         requestBody.location_name = locationName
-        console.log(`[DataForSEO Client] 🔍 Search parameters:`)
-        console.log(`  - keyword: ${searchQuery}`)
-        console.log(`  - location_name: ${locationName}`)
       }
     } else {
       requestBody.location_name = 'Germany'
-      console.log(`[DataForSEO Client] 🔍 Search parameters:`)
-      console.log(`  - keyword: ${searchQuery}`)
-      console.log(`  - location_name: Germany`)
     }
+    
+    console.log(`[DataForSEO Client] 🔍 Search parameters (all):`)
+    console.log(JSON.stringify(requestBody, null, 2))
     
     const body: Record<string, unknown>[] = [requestBody]
 
@@ -484,6 +485,9 @@ export class DataForSEOClient {
       const response = await this.request<{
         tasks?: Array<{
           result?: Array<{
+            total_count?: number
+            count?: number
+            offset?: number
             items?: Array<{
               title?: string
               domain?: string
@@ -509,11 +513,16 @@ export class DataForSEOClient {
       )
 
       const organizations: DataForSEOOrganization[] = []
+      let totalCount = 0
       
       if (response.tasks && response.tasks.length > 0) {
         for (const task of response.tasks) {
           if (task.result && task.result.length > 0) {
             for (const result of task.result) {
+              if (result.total_count !== undefined) {
+                totalCount = result.total_count
+              }
+              
               if (result.items && result.items.length > 0) {
                 for (const item of result.items) {
                   let domain = item.domain
@@ -536,6 +545,10 @@ export class DataForSEOClient {
                   }
                   
                   if (domain || item.title) {
+                    const category = (item as { category?: string; categories?: string[]; industry?: string }).category || 
+                                    (item as { category?: string; categories?: string[]; industry?: string }).categories?.[0] ||
+                                    (item as { category?: string; categories?: string[]; industry?: string }).industry
+                    
                     organizations.push({
                       id: domain || item.title?.toLowerCase().replace(/[^a-z0-9]/g, '') || undefined,
                       name: item.title || undefined,
@@ -544,6 +557,8 @@ export class DataForSEOClient {
                       description: item.description || undefined,
                       phone: phone || undefined,
                       location: item.address || undefined,
+                      industry: category || undefined,
+                      full_data: item as Record<string, unknown>,
                     })
                   }
                 }
@@ -558,7 +573,7 @@ export class DataForSEOClient {
         pagination: {
           page: params.page || 1,
           per_page: params.per_page || 25,
-          total_entries: organizations.length,
+          total_entries: totalCount > 0 ? totalCount : organizations.length,
         }
       }
     } catch (error) {

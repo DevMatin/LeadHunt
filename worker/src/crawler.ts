@@ -4,6 +4,7 @@ import {
   extractEmailsFromMailtoLinks,
   extractObfuscatedEmails,
   extractEmailsFromFooter,
+  extractEmailsWithLabels,
   matchesDomain,
   EmailMatch,
 } from './extractEmails.js'
@@ -397,8 +398,13 @@ export async function crawlCompanyWebsite(website: string): Promise<CrawlResult>
             type === 'impressum' ? 'impressum' : 'contact',
             HARD_LIMITS.MAX_EMAILS_PER_PAGE
           )
+          const labelEmails = extractEmailsWithLabels(
+            text,
+            url,
+            type === 'impressum' ? 'impressum' : 'contact'
+          )
 
-          allEmails.push(...mailtoEmails, ...obfuscatedEmails, ...textEmails)
+          allEmails.push(...mailtoEmails, ...obfuscatedEmails, ...textEmails, ...labelEmails)
 
           if (checkEarlyExit(allEmails, website)) {
             break

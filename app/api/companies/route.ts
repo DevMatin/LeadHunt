@@ -200,14 +200,17 @@ export async function GET(request: Request) {
 
     const { searchParams } = new URL(request.url)
     const industryParam = searchParams.get('industry')
+    const categoryParam = searchParams.get('category')
     const locationParam = searchParams.get('location')
     const searchId = searchParams.get('search') || searchParams.get('search_id')
 
     const industry = industryParam ? industryParam.trim() : null
+    const category = categoryParam ? categoryParam.trim() : null
     const location = locationParam ? locationParam.trim() : null
 
     const queryParams: Record<string, string> = {}
     if (industry) queryParams.industry = industry
+    if (category) queryParams.category = category
     if (location) queryParams.location = location
     if (searchId) queryParams.search = searchId
     let query = supabase
@@ -219,11 +222,13 @@ export async function GET(request: Request) {
     if (searchId) {
       query = query.eq('search_id', searchId)
     }
-    if (industry) {
+    if (category) {
+      query = query.contains('dataforseo_category_ids', [category])
+    } else if (industry) {
       query = query.eq('industry', industry)
     }
     if (location) {
-      query = query.eq('location', location)
+      query = query.or(`dataforseo_city.eq.${location},location.ilike.%${location}%`)
     }
 
     const { data, error } = await query

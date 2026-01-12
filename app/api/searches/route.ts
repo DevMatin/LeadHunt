@@ -107,45 +107,59 @@ export async function POST(request: Request) {
       )
     }
 
-    const { industry, location, maxResults } = body as {
+    const { industry, location, location_coordinate, maxResults } = body as {
       industry?: string
       location?: string
+      location_coordinate?: string
       maxResults?: number
     }
 
     console.log(`[API POST] 📋 Extracted params:`)
     console.log(`[API POST]   - industry: ${industry || 'N/A'}`)
     console.log(`[API POST]   - location: ${location || 'N/A'}`)
+    console.log(`[API POST]   - location_coordinate: ${location_coordinate || 'N/A'}`)
 
-    if (!industry || !location) {
-      const missing = []
-      if (!industry) missing.push('industry')
-      if (!location) missing.push('location')
-      
-      console.error(`[API POST] ❌ Missing required fields: ${missing.join(', ')}`)
+    if (!industry) {
+      console.error(`[API POST] ❌ Missing required field: industry`)
       logApiRequest('POST', '/api/searches', {
         user,
         body,
         statusCode: 400,
-        error: `Missing: ${missing.join(', ')}`,
+        error: 'Missing: industry',
       })
       return NextResponse.json(
-        { error: 'Industry and location are required' },
+        { error: 'Industry is required' },
         { status: 400 }
       )
     }
 
+    if (!location && !location_coordinate) {
+      console.error(`[API POST] ❌ Missing required field: location or location_coordinate`)
+      logApiRequest('POST', '/api/searches', {
+        user,
+        body,
+        statusCode: 400,
+        error: 'Missing: location or location_coordinate',
+      })
+      return NextResponse.json(
+        { error: 'Location or location coordinate is required' },
+        { status: 400 }
+      )
+    }
+
+    const locationValue = location_coordinate || location || ''
+
     console.log(`[API POST] 🗄️  Inserting search into database...`)
     console.log(`[API POST]   - user_id: ${user.id}`)
     console.log(`[API POST]   - industry: ${industry}`)
-    console.log(`[API POST]   - location: ${location}`)
+    console.log(`[API POST]   - location: ${locationValue}`)
 
     const { data, error } = await supabase
       .from('searches')
       .insert({
         user_id: user.id,
         industry,
-        location,
+        location: locationValue,
       })
       .select()
       .single()
@@ -190,18 +204,34 @@ export async function POST(request: Request) {
       try {
         console.log(`[API POST] 🔍 Starting DataForSEO search...`)
         console.log(`[API POST]   - Industry: ${industry}`)
-        console.log(`[API POST]   - Location: ${location}`)
+        console.log(`[API POST]   - Location: ${locationValue}`)
+        console.log(`[API POST]   - Location Coordinate: ${location_coordinate || 'N/A'}`)
 
-        const normalizedLocation = location.trim()
         const normalizedIndustry = industry.trim()
 
         console.log(`[API POST] 🏢 Searching for ORGANIZATIONS by industry and location...`)
         console.log(`[API POST]   - Industry: ${normalizedIndustry}`)
-        console.log(`[API POST]   - Location: ${normalizedLocation}`)
+        console.log(`[API POST]   - Location: ${locationValue}`)
 
         try {
           const maxResultsValue = maxResults && maxResults > 0 ? Math.min(maxResults, 1000) : 100
           console.log(`[API POST] 📊 Max Results: ${maxResultsValue}`)
+          
+          let categoryName = normalizedIndustry
+          const { data: categoryData } = await supabase
+            .from('dataforseo_categories')
+            .select('category_name')
+            .ilike('category_name', `%${normalizedIndustry}%`)
+            .order('business_count', { ascending: false })
+            .limit(1)
+            .maybeSingle()
+          
+          if (categoryData?.category_name) {
+            categoryName = categoryData.category_name
+            console.log(`[API POST] ✅ Found matching category: ${categoryName}`)
+          } else {
+            console.log(`[API POST] ℹ️  Using industry as category: ${categoryName}`)
+          }
           
           const { data: existingCompanies } = await supabase
             .from('companies')
@@ -225,8 +255,10 @@ export async function POST(request: Request) {
           }
           
           const organizations = await searchOrganizations({
-            location: normalizedLocation,
+            location: location_coordinate ? undefined : locationValue,
+            location_coordinate: location_coordinate,
             industry: normalizedIndustry,
+            category: categoryName,
             maxResults: maxResultsValue,
             excludeDataForSEOIds,
             excludeWebsites,
@@ -247,6 +279,23 @@ export async function POST(request: Request) {
               status: 'new'
               dataforseo_organization_id?: string
               dataforseo_enrichment_status?: string
+              dataforseo_full_data?: Record<string, unknown>
+              dataforseo_category_ids?: string[]
+              dataforseo_place_id?: string
+              dataforseo_cid?: string
+              dataforseo_feature_id?: string
+              dataforseo_latitude?: number
+              dataforseo_longitude?: number
+              dataforseo_rating_value?: number
+              dataforseo_rating_votes_count?: number
+              dataforseo_price_level?: string
+              dataforseo_is_claimed?: boolean
+              dataforseo_logo?: string
+              dataforseo_main_image?: string
+              dataforseo_total_photos?: number
+              dataforseo_city?: string
+              dataforseo_zip?: string
+              dataforseo_country_code?: string
             }> = []
 
             let skippedDuplicates = 0
@@ -304,18 +353,53 @@ export async function POST(request: Request) {
               }
 
               const companyName = org.name || 'Unknown Company'
+              
+              let companyLocation = locationValue
+              if (org.location && org.location.trim()) {
+                companyLocation = org.location.trim()
+              } else if (location && !location_coordinate) {
+                companyLocation = location
+              }
+              
+              let companyIndustry = normalizedIndustry
+              if (org.industry && org.industry.trim()) {
+                companyIndustry = org.industry.trim()
+              }
 
-              companiesToInsert.push({
+              const fullData = org.full_data || {}
+              const addressInfo = (fullData as { address_info?: Record<string, unknown> }).address_info || {}
+              const rating = (fullData as { rating?: Record<string, unknown> }).rating || {}
+              
+              const companyData: typeof companiesToInsert[0] = {
                 user_id: user.id,
                 search_id: data.id,
                 name: companyName,
-                industry: normalizedIndustry,
-                location: normalizedLocation,
+                industry: companyIndustry,
+                location: companyLocation,
                 website: website,
                 status: 'new',
                 dataforseo_organization_id: org.id,
                 dataforseo_enrichment_status: 'enriched',
-              })
+                dataforseo_full_data: fullData,
+                dataforseo_category_ids: (fullData as { category_ids?: string[] }).category_ids || undefined,
+                dataforseo_place_id: (fullData as { place_id?: string }).place_id || undefined,
+                dataforseo_cid: (fullData as { cid?: string }).cid || undefined,
+                dataforseo_feature_id: (fullData as { feature_id?: string }).feature_id || undefined,
+                dataforseo_latitude: (fullData as { latitude?: number }).latitude || undefined,
+                dataforseo_longitude: (fullData as { longitude?: number }).longitude || undefined,
+                dataforseo_rating_value: rating.value ? Number(rating.value) : undefined,
+                dataforseo_rating_votes_count: rating.votes_count ? Number(rating.votes_count) : undefined,
+                dataforseo_price_level: (fullData as { price_level?: string }).price_level || undefined,
+                dataforseo_is_claimed: (fullData as { is_claimed?: boolean }).is_claimed || undefined,
+                dataforseo_logo: (fullData as { logo?: string }).logo || undefined,
+                dataforseo_main_image: (fullData as { main_image?: string }).main_image || undefined,
+                dataforseo_total_photos: (fullData as { total_photos?: number }).total_photos || undefined,
+                dataforseo_city: (addressInfo as { city?: string }).city || undefined,
+                dataforseo_zip: (addressInfo as { zip?: string }).zip || undefined,
+                dataforseo_country_code: (addressInfo as { country_code?: string }).country_code || undefined,
+              }
+
+              companiesToInsert.push(companyData)
 
               console.log(`[API POST] ✅ Prepared company: ${companyName} (${website})`)
             }

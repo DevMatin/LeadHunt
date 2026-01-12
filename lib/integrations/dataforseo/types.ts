@@ -10,6 +10,7 @@ export interface DataForSEOOrganization {
   location?: string
   description?: string
   email?: string
+  full_data?: Record<string, unknown>
   [key: string]: unknown
 }
 
@@ -31,6 +32,7 @@ export interface DataForSEOOrganizationSearchParams {
   location_coordinate?: string
   industry?: string
   keyword?: string
+  category?: string
   page?: number
   per_page?: number
 }
