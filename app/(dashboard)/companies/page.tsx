@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ExternalLink, Download, RefreshCw } from 'lucide-react'
+import { ExternalLink, Download, RefreshCw, Filter, Building2, Mail, MapPin, Calendar, CheckCircle2, XCircle, Clock, AlertCircle } from 'lucide-react'
 import { translateCategory } from '@/lib/utils/categoryTranslations'
 
 interface Company {
@@ -136,22 +136,26 @@ export default function CompaniesPage() {
       }
 
       const { data } = await response.json()
-      const companiesData = (data || []).map((company: any) => ({
-        id: company.id,
-        name: company.name,
-        industry: company.industry,
-        location: company.location,
-        website: company.website || null,
-        email: company.email || null,
-        phone: company.phone || null,
-        created_at: company.created_at,
-        owner_first_name: company.owner_first_name || null,
-        owner_last_name: company.owner_last_name || null,
-        owner_email: company.owner_email || null,
-        owner_title: company.owner_title || null,
-        crawl_status: company.crawl_status || null,
-        email_count: company.email_count || 0,
-      }))
+      
+      const companiesData = (data || []).map((company: any) => {
+        const emailCount = Number(company.email_count) || 0
+        return {
+          id: company.id,
+          name: company.name,
+          industry: company.industry,
+          location: company.location,
+          website: company.website || null,
+          email: company.email || null,
+          phone: company.phone || null,
+          created_at: company.created_at,
+          owner_first_name: company.owner_first_name || null,
+          owner_last_name: company.owner_last_name || null,
+          owner_email: company.owner_email || null,
+          owner_title: company.owner_title || null,
+          crawl_status: company.crawl_status || null,
+          email_count: emailCount,
+        }
+      })
       setCompanies(companiesData)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ein Fehler ist aufgetreten')
@@ -314,8 +318,19 @@ export default function CompaniesPage() {
       })
 
       if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || 'Fehler beim Starten des Re-Crawls')
+        const errorData = await response.json()
+        const errorMessage = errorData.error || 'Fehler beim Starten des Re-Crawls'
+        const jobsCreated = errorData.jobs_created || 0
+        const skipped = errorData.skipped || 0
+        
+        if (jobsCreated > 0 || skipped > 0) {
+          alert(
+            `⚠️ Teilweise erfolgreich:\n\n- ${jobsCreated} Jobs erstellt\n- ${skipped} übersprungen\n\nFehler: ${errorMessage}`
+          )
+        } else {
+          throw new Error(errorMessage)
+        }
+        return
       }
 
       const result = await response.json()
@@ -334,212 +349,317 @@ export default function CompaniesPage() {
     }
   }
 
+  const totalCompanies = companies.length
+  const companiesWithEmails = companies.filter((c) => {
+    const hasEmail = (c.owner_email && c.owner_email.trim() !== '') || (c.email && c.email.trim() !== '')
+    const hasEmailCount = (c.email_count ?? 0) > 0
+    return hasEmail || hasEmailCount
+  }).length
+
   return (
     <div className="max-w-7xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1>Unternehmen</h1>
-          {someSelected && (
-            <p className="text-sm text-gray-600 mt-1">
-              {selectedCompanies.size} ausgewählt
-              {exportableCount > 0 && ` • ${exportableCount} mit E-Mail`}
+      <div className="mb-8">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h1 className="mb-2">Unternehmen</h1>
+            <p className="text-gray-600">
+              {totalCompanies} {totalCompanies === 1 ? 'Unternehmen' : 'Unternehmen'} gesamt
+              {companiesWithEmails > 0 && ` • ${companiesWithEmails} mit E-Mail-Adresse`}
             </p>
-          )}
-        </div>
-        <div className="flex items-center gap-3">
-          {someSelected && (
-            <button
-              onClick={exportToCsv}
-              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+          </div>
+          <div className="flex items-center gap-3">
+            {someSelected && (
+              <button
+                onClick={exportToCsv}
+                className="flex items-center gap-2 px-4 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors shadow-sm hover:shadow-md"
+              >
+                <Download className="w-4 h-4" />
+                Als CSV exportieren
+              </button>
+            )}
+            {companiesWithoutEmails.length > 0 && (
+              <button
+                onClick={handleRecrawlNoEmails}
+                disabled={recrawling}
+                className="flex items-center gap-2 px-4 py-2.5 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm hover:shadow-md"
+              >
+                <RefreshCw className={`w-4 h-4 ${recrawling ? 'animate-spin' : ''}`} />
+                Re-Crawl ({companiesWithoutEmails.length})
+              </button>
+            )}
+            <Link
+              href="/search"
+              className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm hover:shadow-md"
             >
-              <Download className="w-4 h-4" />
-              Als CSV exportieren
-            </button>
-          )}
-          {companiesWithoutEmails.length > 0 && (
-            <button
-              onClick={handleRecrawlNoEmails}
-              disabled={recrawling}
-              className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <RefreshCw className={`w-4 h-4 ${recrawling ? 'animate-spin' : ''}`} />
-              Re-Crawl ohne E-Mails ({companiesWithoutEmails.length})
-            </button>
-          )}
-          <Link
-            href="/search"
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            Neue Suche
-          </Link>
+              <Building2 className="w-4 h-4" />
+              Neue Suche
+            </Link>
+          </div>
         </div>
+
+        {someSelected && (
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+            <div className="flex items-center gap-3">
+              <CheckCircle2 className="w-5 h-5 text-blue-600 flex-shrink-0" />
+              <div>
+                <p className="text-blue-900 font-medium">
+                  {selectedCompanies.size} {selectedCompanies.size === 1 ? 'Unternehmen' : 'Unternehmen'} ausgewählt
+                </p>
+                {exportableCount > 0 && (
+                  <p className="text-blue-700 text-sm mt-0.5">
+                    {exportableCount} {exportableCount === 1 ? 'Unternehmen' : 'Unternehmen'} mit E-Mail-Adresse können exportiert werden
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
+      <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6 shadow-sm">
+        <div className="flex items-center gap-2 mb-4">
+          <Filter className="w-5 h-5 text-gray-600" />
+          <h3>Filter</h3>
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label htmlFor="categoryFilter" className="block mb-2 text-gray-700">
-              Branche / Kategorie filtern
+            <label htmlFor="categoryFilter" className="block mb-2 text-gray-700 font-medium">
+              Branche / Kategorie
             </label>
-            <select
-              id="categoryFilter"
-              value={selectedCategory || ''}
-              onChange={(e) => {
-                const value = e.target.value || null
-                setSelectedCategory(value)
-              }}
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
-              disabled={categoriesLoading}
-            >
-              <option value="">Alle Kategorien</option>
-              {availableCategories.map((cat) => (
-                <option key={cat.category_name} value={cat.category_name}>
-                  {translateCategory(cat.category_name)}
-                </option>
-              ))}
-            </select>
+            <div className="relative">
+              <select
+                id="categoryFilter"
+                value={selectedCategory || ''}
+                onChange={(e) => {
+                  const value = e.target.value || null
+                  setSelectedCategory(value)
+                }}
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white appearance-none pr-10"
+                disabled={categoriesLoading}
+              >
+                <option value="">Alle Kategorien</option>
+                {availableCategories.map((cat) => (
+                  <option key={cat.category_name} value={cat.category_name}>
+                    {translateCategory(cat.category_name)}
+                  </option>
+                ))}
+              </select>
+              {categoriesLoading && (
+                <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                  <RefreshCw className="w-4 h-4 text-gray-400 animate-spin" />
+                </div>
+              )}
+            </div>
           </div>
           <div>
-            <label htmlFor="locationFilter" className="block mb-2 text-gray-700">
-              Standort filtern
+            <label htmlFor="locationFilter" className="block mb-2 text-gray-700 font-medium">
+              Standort
             </label>
-            <select
-              id="locationFilter"
-              value={locationFilter}
-              onChange={(e) => {
-                setLocationFilter(e.target.value)
-              }}
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
-              disabled={filtersLoading}
-            >
-              <option value="">Alle Standorte</option>
-              {locations.map((location) => (
-                <option key={location} value={location}>
-                  {location}
-                </option>
-              ))}
-            </select>
+            <div className="relative">
+              <select
+                id="locationFilter"
+                value={locationFilter}
+                onChange={(e) => {
+                  setLocationFilter(e.target.value)
+                }}
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white appearance-none pr-10"
+                disabled={filtersLoading}
+              >
+                <option value="">Alle Standorte</option>
+                {locations.map((location) => (
+                  <option key={location} value={location}>
+                    {location}
+                  </option>
+                ))}
+              </select>
+              {filtersLoading && (
+                <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                  <RefreshCw className="w-4 h-4 text-gray-400 animate-spin" />
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
 
       {loading ? (
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <p className="text-gray-600">Lädt...</p>
+        <div className="bg-white rounded-xl border border-gray-200 p-12 text-center shadow-sm">
+          <RefreshCw className="w-8 h-8 text-gray-400 animate-spin mx-auto mb-4" />
+          <p className="text-gray-600">Lädt Unternehmen...</p>
         </div>
       ) : error ? (
-        <div className="bg-red-50 rounded-xl border border-red-100 p-6">
-          <p className="text-red-700">{error}</p>
+        <div className="bg-red-50 rounded-xl border border-red-200 p-6 shadow-sm">
+          <div className="flex items-center gap-3">
+            <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
+            <div>
+              <p className="text-red-900 font-medium mb-1">Fehler beim Laden</p>
+              <p className="text-red-700">{error}</p>
+            </div>
+          </div>
         </div>
       ) : companies.length === 0 ? (
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <p className="text-gray-600">Keine Unternehmen gefunden.</p>
+        <div className="bg-white rounded-xl border border-gray-200 p-12 text-center shadow-sm">
+          <Building2 className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+          <p className="text-gray-900 font-medium mb-1">Keine Unternehmen gefunden</p>
+          <p className="text-gray-600 mb-6">
+            {selectedCategory || locationFilter
+              ? 'Versuchen Sie andere Filter-Optionen'
+              : 'Starten Sie eine neue Suche, um Unternehmen zu finden'}
+          </p>
+          {(!selectedCategory && !locationFilter) && (
+            <Link
+              href="/search"
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm hover:shadow-md"
+            >
+              <Building2 className="w-4 h-4" />
+              Neue Suche starten
+            </Link>
+          )}
         </div>
       ) : (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-gray-200 bg-gray-50">
-                  <th className="text-left p-4 text-gray-700 w-12">
-                    <input
-                      type="checkbox"
-                      checked={allSelected}
-                      onChange={handleSelectAll}
-                      className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                    />
-                  </th>
-                  <th className="text-left p-4 text-gray-700">Name</th>
-                  <th className="text-left p-4 text-gray-700">Branche</th>
-                  <th className="text-left p-4 text-gray-700">Standort</th>
-                  <th className="text-left p-4 text-gray-700">Website</th>
-                  <th className="text-left p-4 text-gray-700">Crawl Status</th>
-                  <th className="text-left p-4 text-gray-700">E-Mails</th>
-                  <th className="text-left p-4 text-gray-700">Erstellt am</th>
-                  <th className="text-left p-4 text-gray-700">Aktionen</th>
-                </tr>
-              </thead>
-              <tbody>
-                {companies.map((company) => (
-                  <tr
-                    key={company.id}
-                    className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
-                  >
-                    <td className="p-4">
+        <div className="space-y-4">
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
+            <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={handleSelectAll}
+                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                  />
+                  <span className="text-sm text-gray-600">
+                    {companies.length} {companies.length === 1 ? 'Unternehmen' : 'Unternehmen'}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div className="divide-y divide-gray-100">
+              {companies.map((company) => (
+                <div
+                  key={company.id}
+                  className={`px-6 py-5 hover:bg-gray-50 transition-colors ${
+                    selectedCompanies.has(company.id) ? 'bg-blue-50/50' : ''
+                  }`}
+                >
+                  <div className="flex items-start gap-4">
+                    <div className="pt-1">
                       <input
                         type="checkbox"
                         checked={selectedCompanies.has(company.id)}
                         onChange={() => handleSelectCompany(company.id)}
-                        className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                        className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-2 focus:ring-blue-500 cursor-pointer"
                       />
-                    </td>
-                    <td className="p-4">
-                      <p className="text-gray-900">{company.name}</p>
-                    </td>
-                    <td className="p-4">
-                      <p className="text-gray-600">{company.industry}</p>
-                    </td>
-                    <td className="p-4">
-                      <p className="text-gray-600">{company.location}</p>
-                    </td>
-                    <td className="p-4">
-                      {company.website ? (
-                        <a
-                          href={company.website}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-1 text-blue-600 hover:text-blue-700"
-                        >
-                          <span>Website</span>
-                          <ExternalLink className="w-4 h-4" />
-                        </a>
-                      ) : (
-                        <span className="text-gray-400">-</span>
-                      )}
-                    </td>
-                    <td className="p-4">
-                      {company.crawl_status ? (
-                        <span
-                          className={`px-2 py-1 rounded text-xs ${
-                            company.crawl_status === 'done'
-                              ? 'bg-green-100 text-green-700'
-                              : company.crawl_status === 'running'
-                              ? 'bg-blue-100 text-blue-700'
-                              : company.crawl_status === 'failed'
-                              ? 'bg-red-100 text-red-700'
-                              : company.crawl_status === 'pending'
-                              ? 'bg-yellow-100 text-yellow-700'
-                              : 'bg-gray-100 text-gray-700'
-                          }`}
-                        >
-                          {company.crawl_status}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start justify-between gap-4 mb-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <h3 className="text-gray-900 font-semibold truncate">
+                              {company.name}
+                            </h3>
+                            {(() => {
+                              const ownerEmail = company.owner_email ? String(company.owner_email).trim() : ''
+                              const companyEmail = company.email ? String(company.email).trim() : ''
+                              const emailCount = Number(company.email_count) || 0
+                              
+                              const hasOwnerEmail = ownerEmail.length > 0 && ownerEmail !== 'null' && ownerEmail !== 'undefined'
+                              const hasCompanyEmail = companyEmail.length > 0 && companyEmail !== 'null' && companyEmail !== 'undefined'
+                              const hasEmailCount = emailCount > 0
+                              const hasAnyEmail = hasOwnerEmail || hasCompanyEmail || hasEmailCount
+                              
+                              return hasAnyEmail ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700 whitespace-nowrap">
+                                  <Mail className="w-3 h-3" />
+                                  {hasEmailCount ? `${emailCount} E-Mail${emailCount > 1 ? 's' : ''}` : 'E-Mail'}
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600 whitespace-nowrap">
+                                  <XCircle className="w-3 h-3" />
+                                  Keine E-Mail
+                                </span>
+                              )
+                            })()}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600">
+                            {company.industry && (
+                              <span className="flex items-center gap-1.5">
+                                <Building2 className="w-3.5 h-3.5" />
+                                {company.industry}
+                              </span>
+                            )}
+                            <span className="flex items-center gap-1.5">
+                              <MapPin className="w-3.5 h-3.5" />
+                              {company.location}
+                            </span>
+                            {(company.email_count ?? 0) > 0 && (
+                              <span className="flex items-center gap-1.5">
+                                <Mail className="w-3.5 h-3.5" />
+                                {company.email_count} {company.email_count === 1 ? 'E-Mail' : 'E-Mails'}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3 flex-shrink-0">
+                          {company.crawl_status && (
+                            <span
+                              className={`px-2.5 py-1 rounded-md text-xs font-medium whitespace-nowrap ${
+                                company.crawl_status === 'done'
+                                  ? 'bg-green-100 text-green-700'
+                                  : company.crawl_status === 'running'
+                                  ? 'bg-blue-100 text-blue-700'
+                                  : company.crawl_status === 'failed'
+                                  ? 'bg-red-100 text-red-700'
+                                  : company.crawl_status === 'pending'
+                                  ? 'bg-yellow-100 text-yellow-700'
+                                  : 'bg-gray-100 text-gray-700'
+                              }`}
+                            >
+                              {company.crawl_status === 'done'
+                                ? 'Abgeschlossen'
+                                : company.crawl_status === 'running'
+                                ? 'Läuft'
+                                : company.crawl_status === 'failed'
+                                ? 'Fehlgeschlagen'
+                                : company.crawl_status === 'pending'
+                                ? 'Wartend'
+                                : company.crawl_status}
+                            </span>
+                          )}
+                          {company.website && (
+                            <a
+                              href={company.website}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="p-2 text-gray-400 hover:text-blue-600 transition-colors"
+                              title="Website öffnen"
+                            >
+                              <ExternalLink className="w-4 h-4" />
+                            </a>
+                          )}
+                          <Link
+                            href={`/companies/${company.id}`}
+                            className="px-3 py-1.5 text-sm text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors font-medium"
+                          >
+                            Details
+                          </Link>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-4 text-xs text-gray-500">
+                        <span className="flex items-center gap-1.5">
+                          <Calendar className="w-3.5 h-3.5" />
+                          {new Date(company.created_at).toLocaleDateString('de-DE', {
+                            day: '2-digit',
+                            month: '2-digit',
+                            year: 'numeric',
+                          })}
                         </span>
-                      ) : (
-                        <span className="text-gray-400">-</span>
-                      )}
-                    </td>
-                    <td className="p-4">
-                      <span className="text-gray-600">
-                        {(company.email_count ?? 0) > 0 ? company.email_count : '-'}
-                      </span>
-                    </td>
-                    <td className="p-4">
-                      <p className="text-gray-600">
-                        {new Date(company.created_at).toLocaleDateString('de-DE')}
-                      </p>
-                    </td>
-                    <td className="p-4">
-                      <Link
-                        href={`/companies/${company.id}`}
-                        className="text-blue-600 hover:text-blue-700"
-                      >
-                        Details
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}

@@ -154,14 +154,25 @@ export async function POST(request: Request) {
 
       if (result.errors.length > 0) {
         console.error(`[API POST] ❌ Errors creating jobs:`, result.errors)
+        const firstError = result.errors[0]
+        const errorMessage = result.errors.length === 1 
+          ? firstError.reason 
+          : `Failed to create ${result.errors.length} crawl jobs. First error: ${firstError.reason}`
+        
         logApiRequest('POST', '/api/crawl/enqueue', {
           user,
           body,
           statusCode: 500,
-          error: result.errors[0].reason,
+          error: errorMessage,
         })
+        
         return NextResponse.json(
-          { error: 'Failed to create some crawl jobs', errors: result.errors },
+          { 
+            error: errorMessage,
+            errors: result.errors,
+            jobs_created: result.created,
+            skipped: result.skipped,
+          },
           { status: 500 }
         )
       }

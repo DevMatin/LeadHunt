@@ -264,24 +264,47 @@ export async function GET(request: Request) {
         }
       }
       
-      const { data: emailCounts } = await supabase
-        .from('company_emails')
-        .select('company_id')
-        .eq('owner_user_id', user.id)
-        .in('company_id', companyIds)
-      
       const countMap = new Map<string, number>()
-      if (emailCounts) {
-        for (const email of emailCounts) {
-          countMap.set(email.company_id, (countMap.get(email.company_id) || 0) + 1)
+      
+      if (companyIds.length > 0) {
+        const BATCH_SIZE = 100
+        for (let i = 0; i < companyIds.length; i += BATCH_SIZE) {
+          const batch = companyIds.slice(i, i + BATCH_SIZE)
+          
+          try {
+            const { data: emailCounts, error: emailError } = await supabase
+              .from('company_emails')
+              .select('company_id')
+              .in('company_id', batch)
+            
+            if (emailError) {
+              console.error(`[API GET] ❌ Error fetching email counts for batch ${Math.floor(i / BATCH_SIZE) + 1}:`, emailError.message)
+            } else if (emailCounts && emailCounts.length > 0) {
+              for (const email of emailCounts) {
+                countMap.set(email.company_id, (countMap.get(email.company_id) || 0) + 1)
+              }
+            }
+          } catch (batchError) {
+            console.error(`[API GET] ❌ Exception in batch ${Math.floor(i / BATCH_SIZE) + 1}:`, batchError)
+          }
         }
       }
       
-      const enrichedData = data.map((company: any) => ({
-        ...company,
-        crawl_status: latestStatusMap.get(company.id) || null,
-        email_count: countMap.get(company.id) || 0,
-      }))
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`[API GET] 📧 Email counts for ${companyIds.length} companies:`, {
+          companiesWithEmails: countMap.size,
+          sampleCounts: Array.from(countMap.entries()).slice(0, 5),
+        })
+      }
+      
+      const enrichedData = data.map((company: any) => {
+        const emailCount = countMap.get(company.id) || 0
+        return {
+          ...company,
+          crawl_status: latestStatusMap.get(company.id) || null,
+          email_count: emailCount,
+        }
+      })
       
       const response = { data: enrichedData }
       const responseObj = NextResponse.json(response, { status: 200 })

@@ -33,7 +33,9 @@ export async function GET() {
       for (const company of companies) {
         if (company.dataforseo_category_ids && Array.isArray(company.dataforseo_category_ids)) {
           for (const categoryId of company.dataforseo_category_ids) {
-            categorySet.add(categoryId)
+            if (categoryId && categoryId.trim().length > 0) {
+              categorySet.add(categoryId.trim())
+            }
           }
         }
       }
